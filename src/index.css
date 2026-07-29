@@ -1,0 +1,98 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --color-tec-navy: #0B2C5D;
+    --color-tec-navy-dark: #071D3E;
+    --color-tec-navy-light: #164282;
+    --color-tec-gold: #D4A017;
+    --color-tec-gold-light: #F4C430;
+    --color-tec-gold-hover: #B8860B;
+  }
+  
+  html, body, #root {
+    font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+    background-color: #F8FAFC;
+    color: #0F172A;
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    max-width: 100vw;
+    overflow-x: hidden !important;
+  }
+}
+
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+/* Custom Utilities */
+.bg-tec-navy {
+  background-color: #0B2C5D;
+}
+.bg-tec-navy-dark {
+  background-color: #071D3E;
+}
+.bg-tec-navy-light {
+  background-color: #164282;
+}
+.text-tec-navy {
+  color: #0B2C5D;
+}
+.border-tec-navy {
+  border-color: #0B2C5D;
+}
+
+.bg-tec-gold {
+  background-color: #D4A017;
+}
+.bg-tec-gold-hover:hover {
+  background-color: #B8860B;
+}
+.text-tec-gold {
+  color: #D4A017;
+}
+.border-tec-gold {
+  border-color: #D4A017;
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: #F1F5F9;
+}
+::-webkit-scrollbar-thumb {
+  background: #94A3B8;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #64748B;
+}
+
+/* Print Stylesheet for Application PDF Preview */
+@media print {
+  body {
+    background-color: white !important;
+    color: black !important;
+  }
+  .no-print, header, footer, .sticky-nav, button:not(.print-include) {
+    display: none !important;
+  }
+  .print-only {
+    display: block !important;
+  }
+  .print-page {
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 20px !important;
+    box-shadow: none !important;
+    border: none !important;
+  }
+  @page {
+    margin: 15mm;
+    size: auto;
+  }
+}
