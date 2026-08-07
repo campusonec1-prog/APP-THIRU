@@ -1,8 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useAuth } from '../Context/AuthContext';
-import { initiatePayment } from '../services/api';
-import { Button } from '../Components/common/Button';
+import { useAuth } from '../context/AuthContext';
+import { initiatePayment } from '../Api';
+import { Button } from '../components/common/Button';
 import { ShieldCheck, CreditCard, QrCode, Building, CheckCircle2, ArrowRight } from 'lucide-react';
 import emblemPng from '../assets/emblem.png';
 
@@ -14,7 +14,11 @@ export function Payment() {
   const [isSuccess, setIsSuccess] = useState(false);
   const navigate = useNavigate();
 
-  const appId = application?.applicationId || 'TEC-2026-8942';
+  useEffect(() => {
+    refreshApplicationStatus();
+  }, [refreshApplicationStatus]);
+
+  const appId = application?.application_no || application?.applicationNo || application?.applicationId || 'UG260001';
 
   const handlePayNow = async () => {
     setIsProcessing(true);

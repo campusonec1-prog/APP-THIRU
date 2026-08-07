@@ -1,12 +1,12 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { getDepartmentsList, getProgramsList } from '../services/api';
+import { getDepartmentsList, getProgramsList } from '../Api';
 import { COLLEGE_CONFIG } from '../Config/collegeConfig';
 import {
   Award, ShieldCheck, ArrowRight, CheckCircle2,
   Sparkles, Users
 } from 'lucide-react';
-import { useAuth } from '../Context/AuthContext';
+import { useAuth } from '../context/AuthContext';
 import { realtimeManager } from '../services/websocket';
 import { gsap } from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
@@ -163,9 +163,12 @@ export function Home() {
     }
   }, [loading, activeTab, filteredDepartments]);
 
-  const handleApplyClick = (degree, deptName = '') => {
+  const handleApplyClick = (degree, deptName = '', programId = null) => {
     if (user) {
-      navigate(`/application-form?degree=${degree}&dept=${encodeURIComponent(deptName)}`);
+      const url = programId
+        ? `/application-form?program_id=${programId}&degree=${degree}&dept=${encodeURIComponent(deptName)}`
+        : `/application-form?degree=${degree}&dept=${encodeURIComponent(deptName)}`;
+      navigate(url);
     } else {
       showToast('Please log in to start your application.', 'info');
       navigate('/login');
@@ -395,8 +398,8 @@ export function Home() {
                       {dept.department_code && dept.department_code !== '1517' ? `Code ${dept.department_code}` : 'TNEA Code 1517'}
                     </span>
                     <button
-                      onClick={() => handleApplyClick(dept.program_level, dept.displayName)}
-                      className="text-xs font-bold text-tec-navy hover:text-tec-gold flex items-center gap-1 group-hover:translate-x-1 transition-transform"
+                      onClick={() => handleApplyClick(dept.program_level, dept.displayName, dept.program_id)}
+                      className="text-xs font-bold text-tec-navy hover:text-tec-gold flex items-center gap-1 group-hover:translate-x-1 transition-transform cursor-pointer"
                     >
                       <span>Apply</span>
                       <ArrowRight className="w-3.5 h-3.5" />

@@ -3,9 +3,9 @@ import { useNavigate, Link } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { useAuth } from '../Context/AuthContext';
-import { Input } from '../Components/common/Input';
-import { Button } from '../Components/common/Button';
+import { useAuth } from '../context/AuthContext';
+import { Input } from '../components/common/Input';
+import { Button } from '../components/common/Button';
 import { User, Lock } from 'lucide-react';
 import { COLLEGE_CONFIG } from '../Config/collegeConfig';
 

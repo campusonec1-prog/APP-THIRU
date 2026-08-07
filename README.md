@@ -1,16 +1,28 @@
-# React + Vite
+# Thirumalai Engineering College — Online Admission Application Portal
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+React + Vite admission portal frontend for Thirumalai Engineering College.
 
-Currently, two official plugins are available:
+---
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## Directory & Naming Conventions
 
-## React Compiler
+### Recommended Directory Convention: All-Lowercase Directory Names
+To maintain consistency across cross-platform case-sensitive environments (e.g. Linux build servers on Render vs macOS/Windows local development), we recommend adopting **all-lowercase directory names** under `src/`:
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+- `src/api/` (API client services & HTTP handlers)
+- `src/components/` (UI components & form renderers)
+- `src/context/` (React auth & application state context)
+- `src/pages/` (Route page components)
+- `src/config/` (College configuration & static metadata)
+- `src/assets/` (Static image assets and logos)
 
-## Expanding the Oxlint configuration
+> **Architectural Note**: The project currently has a mix (`src/Api/` and `src/Config/` alongside `src/components/`, `src/context/`, `src/pages/`). Flagged for full repo-wide rename after team confirmation to avoid disruption during active feature deliveries.
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and Oxlint's TypeScript related rules in your project.
+---
+
+## Environment Configuration
+
+Define API base URL in `.env`:
+```env
+VITE_API_BASE_URL=https://server-thiru.onrender.com/api
+```

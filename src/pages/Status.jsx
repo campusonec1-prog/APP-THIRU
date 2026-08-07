@@ -1,15 +1,15 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { useAuth } from '../Context/AuthContext';
-import { getDepartmentsList, getProgramsList } from '../services/api';
+import { useAuth } from '../context/AuthContext';
+import { getDepartmentsList, getProgramsList } from '../Api';
 import { COLLEGE_CONFIG } from '../Config/collegeConfig';
 import {
   User, Mail, Phone, FileText, ArrowRight,
-  BookOpen, Inbox, ChevronRight
+  BookOpen, Inbox, ChevronRight, RefreshCw
 } from 'lucide-react';
 
 export function Status() {
-  const { user, application, academicYear } = useAuth();
+  const { user, application, refreshApplicationStatus, academicYear } = useAuth();
   const navigate = useNavigate();
 
   // Courses State (mirroring Home.jsx)
@@ -40,7 +40,8 @@ export function Status() {
 
   useEffect(() => {
     fetchAcademicData();
-  }, [fetchAcademicData]);
+    refreshApplicationStatus();
+  }, [fetchAcademicData, refreshApplicationStatus]);
 
   const filteredDepartments = useMemo(() => {
     return departments
@@ -146,8 +147,8 @@ export function Status() {
                 <div className="space-y-4">
                   <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-3">
                     <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Application ID</span>
-                      <span className="text-sm font-extrabold text-tec-navy">{application.applicationId || 'N/A'}</span>
+                      <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Application Number</span>
+                      <span className="text-sm font-extrabold text-tec-navy">{application.application_no || application.applicationNo || application.applicationId || 'N/A'}</span>
                     </div>
                     <div className="flex items-center justify-between">
                       <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Status</span>

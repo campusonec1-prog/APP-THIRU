@@ -1,15 +1,15 @@
 import React, { useEffect } from 'react';
 import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom';
-import { AuthProvider } from './Context/AuthContext';
-import { AnnouncementBar } from './Components/layout/AnnouncementBar';
-import { Header } from './Components/layout/Header';
-import { Footer } from './Components/layout/Footer';
-import { Home } from './Pages/Home';
-import { Register } from './Pages/Register';
-import { Login } from './Pages/Login';
-import { Apply } from './Pages/Apply';
-import { Payment } from './Pages/Payment';
-import { Status } from './Pages/Status';
+import { AuthProvider } from './context/AuthContext';
+import { AnnouncementBar } from './components/layout/AnnouncementBar';
+import { Header } from './components/layout/Header';
+import { Footer } from './components/layout/Footer';
+import { Home } from './pages/Home';
+import { Register } from './pages/Register';
+import { Login } from './pages/Login';
+import { Apply } from './pages/Apply';
+import { Payment } from './pages/Payment';
+import { Status } from './pages/Status';
 
 function ScrollToTop() {
   const { pathname } = useLocation();

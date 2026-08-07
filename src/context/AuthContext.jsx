@@ -1,5 +1,11 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { loginUser as apiLogin, getApplicationStatus, getAcademicYearsList, normalizeUser } from '../services/api';
+import {
+  loginUser as apiLogin,
+  getApplicationStatus,
+  getAcademicYearsList,
+  normalizeUser,
+  subscribeColdStart
+} from '../Api';
 import { realtimeManager } from '../services/websocket';
 
 const AuthContext = createContext();
@@ -22,8 +28,17 @@ export function AuthProvider({ children }) {
 
   const [application, setApplication] = useState(null);
   const [toast, setToast] = useState(null);
+  const [isServerWakingUp, setIsServerWakingUp] = useState(false);
   const [academicYearObj, setAcademicYearObj] = useState(null);
   const [academicYear, setAcademicYear] = useState('2026-2027');
+
+  // Subscribe to Axios cold start status notifications
+  useEffect(() => {
+    const unsubscribe = subscribeColdStart((wakingUp) => {
+      setIsServerWakingUp(wakingUp);
+    });
+    return unsubscribe;
+  }, []);
 
   const fetchAcademicYear = useCallback(async () => {
     try {
@@ -45,13 +60,26 @@ export function AuthProvider({ children }) {
     fetchAcademicYear();
   }, [fetchAcademicYear]);
 
-  useEffect(() => {
-    if (user) {
-      getApplicationStatus()
-        .then(res => res && setApplication(res.application || res))
-        .catch(err => console.error('Failed to load application status', err));
+  const refreshApplicationStatus = useCallback(async () => {
+    if (!user) return null;
+    try {
+      const res = await getApplicationStatus();
+      const appData = res?.data || res?.application || res;
+      if (appData) {
+        setApplication(appData);
+      }
+      return appData;
+    } catch (err) {
+      console.error('Failed to refresh application status:', err);
+      return null;
     }
   }, [user]);
+
+  useEffect(() => {
+    if (user) {
+      refreshApplicationStatus();
+    }
+  }, [user, refreshApplicationStatus]);
 
   // Subscribe to WebSocket real-time updates for dynamic background refreshes
   useEffect(() => {
@@ -59,13 +87,11 @@ export function AuthProvider({ children }) {
       console.log('[AuthContext] WebSocket update received:', payload);
       fetchAcademicYear();
       if (user) {
-        getApplicationStatus()
-          .then(res => res && setApplication(res.application || res))
-          .catch(err => console.error('Failed to refresh application status on WS message', err));
+        refreshApplicationStatus();
       }
     });
     return unsubscribe;
-  }, [user, fetchAcademicYear]);
+  }, [user, fetchAcademicYear, refreshApplicationStatus]);
 
   const showToast = useCallback((message, type = 'info') => {
     setToast({ message, type, id: Date.now() });
@@ -80,18 +106,11 @@ export function AuthProvider({ children }) {
     return response;
   };
 
-
   const logout = () => {
     localStorage.removeItem('tec_user');
     setUser(null);
     setApplication(null);
     showToast('Logged out of application portal.', 'info');
-  };
-
-  const refreshApplicationStatus = async () => {
-    const res = await getApplicationStatus();
-    setApplication(res.application);
-    return res.application;
   };
 
   return (
@@ -106,9 +125,21 @@ export function AuthProvider({ children }) {
       logout,
       toast,
       showToast,
-      refreshApplicationStatus
+      refreshApplicationStatus,
+      isServerWakingUp
     }}>
       {children}
+
+      {/* Global Server Cold Start Status Banner */}
+      {isServerWakingUp && (
+        <div className="fixed bottom-4 left-1/2 transform -translate-x-1/2 z-50 transition-all ease-out duration-300">
+          <div className="px-5 py-3 rounded-2xl bg-amber-500 text-slate-950 font-extrabold text-xs sm:text-sm flex items-center gap-3 shadow-2xl border-2 border-amber-300 animate-pulse">
+            <div className="w-3 h-3 rounded-full bg-slate-950 animate-ping" />
+            <span>⚡ Waking up the server... Please hold tight, processing your request!</span>
+          </div>
+        </div>
+      )}
+
       {/* Global Toast Component */}
       {toast && (
         <div className="fixed top-4 right-4 sm:right-6 z-50 transition-all transform ease-out duration-300">
