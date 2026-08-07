@@ -1,278 +1,287 @@
-import React, { useState, useEffect } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext';
-import { getApplicationStatus, updateMockStatus } from '../services/api';
-import { COLLEGE_INFO } from '../utils/constants';
-import { Badge } from '../components/common/Badge';
-import { Button } from '../components/common/Button';
-import { Printer, CreditCard, RefreshCw } from 'lucide-react';
-import logoWebp from '../assets/logo.webp';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+import { useAuth } from '../Context/AuthContext';
+import { getDepartmentsList, getProgramsList } from '../services/api';
+import { COLLEGE_CONFIG } from '../Config/collegeConfig';
+import {
+  User, Mail, Phone, FileText, ArrowRight,
+  BookOpen, Inbox, ChevronRight
+} from 'lucide-react';
 
 export function Status() {
-  const { application, setApplication, showToast } = useAuth();
-  const [loading, setLoading] = useState(false);
-  const [updatingStatus, setUpdatingStatus] = useState(false);
+  const { user, application, academicYear } = useAuth();
   const navigate = useNavigate();
 
-  useEffect(() => {
-    fetchStatus();
-  }, []);
+  // Courses State (mirroring Home.jsx)
+  const [activeTab, setActiveTab] = useState('UG');
+  const [loading, setLoading] = useState(true);
+  const [departments, setDepartments] = useState([]);
+  const [programsMap, setProgramsMap] = useState({});
 
-  const fetchStatus = async () => {
-    setLoading(true);
+  const fetchAcademicData = useCallback(async () => {
     try {
-      const res = await getApplicationStatus();
-      setApplication(res.application);
+      setLoading(true);
+      const [deptsData, progsData] = await Promise.all([
+        getDepartmentsList().catch(() => []),
+        getProgramsList().catch(() => []),
+      ]);
+      const rawDepts = Array.isArray(deptsData) ? deptsData : (deptsData?.data || []);
+      const rawProgs = Array.isArray(progsData) ? progsData : (progsData?.data || []);
+      const pMap = {};
+      rawProgs.forEach((p) => { pMap[p.id] = p; });
+      setProgramsMap(pMap);
+      setDepartments(rawDepts);
     } catch (err) {
-      showToast('Failed to refresh status', 'error');
+      console.error('Failed to fetch academic programs:', err);
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  const handleStatusChange = async (newStatus) => {
-    setUpdatingStatus(true);
-    try {
-      const res = await updateMockStatus(newStatus);
-      setApplication(res.application);
-      showToast(`Mock Status updated to "${newStatus}"`, 'info');
-    } catch (e) {
-      showToast('Failed to update mock status', 'error');
-    } finally {
-      setUpdatingStatus(false);
-    }
-  };
+  useEffect(() => {
+    fetchAcademicData();
+  }, [fetchAcademicData]);
 
-  const handlePrint = () => {
-    window.print();
-  };
+  const filteredDepartments = useMemo(() => {
+    return departments
+      .map((dept) => {
+        const prog = programsMap[dept.program_id] || {};
+        const level = prog.program_level || 'UG';
+        const progName = prog.program_name || '';
+        const duration = prog.duration ? `${prog.duration} Years` : (level === 'UG' ? '4 Years' : '2 Years');
+        const displayName = progName ? `${progName} - ${dept.department_name}` : dept.department_name;
+        return { ...dept, program_level: level, program_name: progName, displayName, duration };
+      })
+      .filter((dept) => dept.program_level === activeTab);
+  }, [departments, programsMap, activeTab]);
 
-  const app = application || {
-    applicationId: 'TEC-2026-8942',
-    status: 'Submitted',
-    submittedAt: new Date().toISOString(),
-    feePaid: false,
-    personalDetails: { fullName: 'Karthik Raja S', dob: '2005-04-14', gender: 'Male', community: 'BC', aadharNo: '789012345678' },
-    contactDetails: { address: '14, Temple Street', city: 'Kanchipuram', district: 'Kancheepuram', state: 'Tamil Nadu', pincode: '631501', mobile: '9876543210', email: 'karthik.tec2026@gmail.com' },
-    academicDetails: { tenthPercentage: 89.5, twelfthPercentage: 92.4, cutoffScore: 188.0, physicsMarks: 94, chemistryMarks: 90, mathsMarks: 96 },
-    programSelection: { degreeLevel: 'UG', department: 'B.Tech AI & Data Science' },
-    entranceDetails: { counsellingCode: '1517', tneaAppNo: 'TNEA2026-98124' }
-  };
+  const ugCount = useMemo(() => departments.filter(d => (programsMap[d.program_id]?.program_level || 'UG') === 'UG').length, [departments, programsMap]);
+  const pgCount = useMemo(() => departments.filter(d => programsMap[d.program_id]?.program_level === 'PG').length, [departments, programsMap]);
+
+  // User display values
+  const displayName = user?.fullName || user?.name || user?.username || 'Applicant';
+  const displayEmail = user?.email || '—';
+  const displayMobile = user?.mobile || user?.phone || user?.mobileNumber || '—';
+  const initials = displayName.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2);
 
   return (
     <div className="min-h-screen bg-slate-100 py-8 px-4 sm:px-6 lg:px-8">
-      
-      {/* Non-printable Control Header */}
-      <div className="max-w-4xl mx-auto mb-6 bg-white p-4 rounded-xl border border-slate-200 shadow-xs flex flex-wrap items-center justify-between gap-4 no-print">
+      <div className="max-w-7xl mx-auto space-y-8">
+
+        {/* Page Title */}
         <div>
-          <span className="text-xs font-bold text-slate-500 uppercase tracking-wider block">Application Reference</span>
-          <h2 className="text-xl font-extrabold text-tec-navy">{app.applicationId}</h2>
+          <h1 className="text-2xl font-extrabold text-slate-900">My Profile</h1>
+          <p className="text-sm text-slate-500 mt-1">View your account details and application status</p>
         </div>
 
-        {/* Workflow State Tester Buttons for reviewers / backend team */}
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-xs font-semibold text-slate-500 mr-1">Test State:</span>
-          {['Submitted', 'Under Review', 'Approved', 'Rejected'].map((st) => (
-            <button
-              key={st}
-              onClick={() => handleStatusChange(st)}
-              className={`px-2.5 py-1 rounded text-xs font-bold transition ${
-                app.status === st
-                  ? 'bg-tec-navy text-white shadow-xs'
-                  : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-              }`}
-            >
-              {st}
-            </button>
-          ))}
-        </div>
+        {/* Top Row: User Profile (left) + My Application (right) */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
 
-        {/* Action Buttons */}
-        <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={fetchStatus}
-            isLoading={loading}
-          >
-            <RefreshCw className="w-4 h-4" />
-          </Button>
-          {!app.feePaid && (
-            <Link to="/payment">
-              <Button variant="accent" size="sm" className="font-bold">
-                <CreditCard className="w-4 h-4" />
-                <span>Pay Fee (₹500)</span>
-              </Button>
-            </Link>
-          )}
-          <Button
-            variant="primary"
-            size="sm"
-            onClick={handlePrint}
-            className="font-bold print-include"
-          >
-            <Printer className="w-4 h-4" />
-            <span>Print Application PDF</span>
-          </Button>
-        </div>
-      </div>
-
-      {/* Main Printable Application Card */}
-      <div className="max-w-4xl mx-auto bg-white rounded-2xl border border-slate-200 shadow-xl overflow-hidden print-page">
-        
-        {/* Institutional Header Banner */}
-        <div className="bg-tec-navy text-white p-6 sm:p-8 border-b-4 border-tec-gold flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <img
-              src={logoWebp}
-              alt="TEC Logo"
-              onError={(e) => { e.target.src = '/logo.png'; }}
-              className="h-16 w-auto object-contain bg-white p-1 rounded"
-            />
-            <div>
-              <h1 className="text-xl sm:text-2xl font-extrabold tracking-tight">
-                THIRUMALAI ENGINEERING COLLEGE
-              </h1>
-              <p className="text-xs text-slate-300">
-                Krishnapuram Post, Kilambi, Kancheepuram – 631551, Tamil Nadu
-              </p>
-              <p className="text-xs font-bold text-tec-gold mt-1">
-                TNEA Counselling Code: {COLLEGE_INFO.counsellingCode} • Anna University Affiliated
-              </p>
-            </div>
-          </div>
-          <div className="hidden sm:block text-right no-print">
-            <Badge status={app.status} className="text-sm px-3 py-1" />
-          </div>
-        </div>
-
-        {/* Application Summary Body */}
-        <div className="p-6 sm:p-8 space-y-8">
-          
-          {/* Status & Reference Banner */}
-          <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 flex flex-col sm:flex-row items-center justify-between gap-4">
-            <div>
-              <span className="text-xs text-slate-500 font-bold uppercase tracking-wider">Application ID</span>
-              <p className="text-2xl font-extrabold text-tec-navy">{app.applicationId}</p>
-              <p className="text-xs text-slate-500">Submitted on: {new Date(app.submittedAt || Date.now()).toLocaleDateString()}</p>
-            </div>
-
-            <div className="flex items-center gap-3">
-              <div className="text-right">
-                <span className="text-xs text-slate-500 font-bold block">Application Status</span>
-                <Badge status={app.status} className="text-xs px-3 py-1" />
-              </div>
-              <div className="text-right border-l border-slate-200 pl-3">
-                <span className="text-xs text-slate-500 font-bold block">Payment Status</span>
-                <span className={`text-xs font-extrabold px-2.5 py-1 rounded ${app.feePaid ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}`}>
-                  {app.feePaid ? '✓ Fee Paid (₹500)' : '⚠️ Fee Pending'}
+          {/* ── Left: User Info Card ── */}
+          <div className="lg:col-span-4 space-y-4">
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-lg overflow-hidden">
+              {/* Avatar + Name Banner */}
+              <div className="bg-tec-navy px-6 pt-8 pb-6 text-center">
+                <div className="w-20 h-20 mx-auto rounded-full bg-tec-gold text-slate-950 flex items-center justify-center text-2xl font-black shadow-xl border-4 border-white mb-3">
+                  {initials}
+                </div>
+                <h2 className="text-base font-extrabold text-white truncate">{displayName}</h2>
+                <span className="inline-block mt-1.5 px-3 py-0.5 rounded-full bg-white/15 text-tec-gold text-xs font-bold border border-tec-gold/30">
+                  Applicant
                 </span>
               </div>
-            </div>
-          </div>
 
-          {/* Program Preferences Card */}
-          <div className="bg-blue-50/60 border border-blue-200 p-4 rounded-xl flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-            <div>
-              <span className="text-xs font-bold text-blue-900 uppercase tracking-wider block mb-1">Course Choice Preferences ({app.programSelection?.degreeLevel || 'UG'})</span>
-              <div className="space-y-1 text-xs text-slate-800 font-semibold">
-                <p><span className="text-tec-navy font-bold">1st Choice:</span> {app.programSelection?.preference1 || app.programSelection?.department || 'Computer Science & Engineering'}</p>
-                <p><span className="text-tec-navy font-bold">2nd Choice:</span> {app.programSelection?.preference2 || 'B.Tech AI & Data Science'}</p>
-                <p><span className="text-tec-navy font-bold">3rd Choice:</span> {app.programSelection?.preference3 || 'Information Technology'}</p>
-              </div>
-            </div>
-            <div className="text-left md:text-right">
-              <span className="text-xs text-blue-900 font-bold block">TNEA Engineering Cutoff</span>
-              <span className="text-2xl font-black text-tec-navy">
-                {app.academicDetails?.cutoffScore || '188.00'} <span className="text-xs font-medium text-slate-500">/ 200</span>
-              </span>
-            </div>
-          </div>
-
-          {/* Grid Information Tables */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            
-            {/* Personal Details Box */}
-            <div className="border border-slate-200 rounded-xl p-4 space-y-3">
-              <h4 className="text-xs font-extrabold text-tec-navy uppercase tracking-wider border-b border-slate-200 pb-2">
-                1. Personal Information
-              </h4>
-              <div className="space-y-1.5 text-xs">
-                <div className="flex justify-between"><span className="text-slate-500">Full Name:</span> <span className="font-bold text-slate-800">{app.personalDetails?.fullName}</span></div>
-                <div className="flex justify-between"><span className="text-slate-500">Date of Birth:</span> <span className="font-semibold text-slate-800">{app.personalDetails?.dob}</span></div>
-                <div className="flex justify-between"><span className="text-slate-500">Gender:</span> <span className="font-semibold text-slate-800">{app.personalDetails?.gender}</span></div>
-                <div className="flex justify-between"><span className="text-slate-500">Community:</span> <span className="font-semibold text-slate-800">{app.personalDetails?.community} ({app.personalDetails?.caste || 'Mudaliar'})</span></div>
-                <div className="flex justify-between"><span className="text-slate-500">Aadhar No.:</span> <span className="font-mono font-semibold text-slate-800">{app.personalDetails?.aadharNo}</span></div>
-              </div>
-            </div>
-
-            {/* Contact Details Box */}
-            <div className="border border-slate-200 rounded-xl p-4 space-y-3">
-              <h4 className="text-xs font-extrabold text-tec-navy uppercase tracking-wider border-b border-slate-200 pb-2">
-                2. Contact & Address
-              </h4>
-              <div className="space-y-1.5 text-xs">
-                <div className="flex justify-between"><span className="text-slate-500">Mobile:</span> <span className="font-semibold text-slate-800">{app.contactDetails?.mobile}</span></div>
-                <div className="flex justify-between"><span className="text-slate-500">Email:</span> <span className="font-semibold text-slate-800">{app.contactDetails?.email}</span></div>
-                <div className="flex justify-between"><span className="text-slate-500">Parent/Guardian:</span> <span className="font-semibold text-slate-800">{app.contactDetails?.parentName}</span></div>
-                <div className="flex justify-between"><span className="text-slate-500">Address:</span> <span className="font-semibold text-slate-800 text-right">{app.contactDetails?.address}, {app.contactDetails?.city}</span></div>
-                <div className="flex justify-between"><span className="text-slate-500">Pincode:</span> <span className="font-semibold text-slate-800">{app.contactDetails?.pincode}</span></div>
-              </div>
-            </div>
-
-            {/* Academic Qualifications Box */}
-            <div className="border border-slate-200 rounded-xl p-4 space-y-3 md:col-span-2">
-              <h4 className="text-xs font-extrabold text-tec-navy uppercase tracking-wider border-b border-slate-200 pb-2">
-                3. Academic Qualifications Breakdown
-              </h4>
-              
-              <div className="space-y-4">
-                {(app.qualifications || [
-                  { level: 'SSLC (10th)', boardOrUniversity: 'State Board (Tamil Nadu)', institutionName: 'Govt Higher Secondary School', yearOfPassing: '2022', overallPercentage: 88.5, regulation: 'N/A', subjects: [{ subjectCode: '1001', subjectName: 'Mathematics', marksObtained: 92, maxMarks: 100 }, { subjectCode: '1002', subjectName: 'Science', marksObtained: 88, maxMarks: 100 }] },
-                  { level: 'HSC (12th)', boardOrUniversity: 'State Board (Tamil Nadu)', institutionName: 'Govt Higher Secondary School', yearOfPassing: '2024', overallPercentage: 91.0, regulation: 'N/A', subjects: [{ subjectCode: '2001', subjectName: 'Mathematics', marksObtained: 94, maxMarks: 100 }, { subjectCode: '2002', subjectName: 'Physics', marksObtained: 92, maxMarks: 100 }, { subjectCode: '2003', subjectName: 'Chemistry', marksObtained: 90, maxMarks: 100 }] }
-                ]).map((q, qIdx) => (
-                  <div key={qIdx} className="bg-slate-50 p-3 rounded-lg border border-slate-200 text-xs space-y-2">
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between font-bold text-slate-800 border-b border-slate-200/80 pb-1.5 gap-1">
-                      <span className="text-tec-navy">{q.level} • {q.institutionName} ({q.boardOrUniversity}) {q.regulation && q.regulation !== 'N/A' && <span className="ml-1 text-[10px] bg-blue-100 text-tec-navy px-1.5 py-0.5 rounded">{q.regulation}</span>}</span>
-                      <span className="text-slate-600 font-semibold">Passed: {q.yearOfPassing} | Overall: <strong className="text-tec-navy">{q.overallPercentage}%</strong></span>
-                    </div>
-
-                    {q.subjects && q.subjects.length > 0 && (
-                      <div className="pt-1">
-                        <span className="text-[11px] font-bold text-slate-500 uppercase block mb-1">Subject Breakdown:</span>
-                        <div className="flex flex-wrap gap-2">
-                          {q.subjects.map((sub, sIdx) => (
-                            <span key={sIdx} className="bg-white px-2.5 py-1 rounded border border-slate-200 font-medium">
-                              {sub.subjectCode && <strong className="text-tec-navy mr-1">[{sub.subjectCode}]</strong>}
-                              {sub.subjectName}: <strong>{sub.marksObtained}</strong> / {sub.maxMarks}
-                            </span>
-                          ))}
-                        </div>
-                      </div>
-                    )}
+              {/* Contact Details */}
+              <div className="px-5 py-5 space-y-3">
+                <div className="flex items-center gap-3 p-3 rounded-xl bg-slate-50 border border-slate-100">
+                  <div className="w-8 h-8 rounded-lg bg-tec-navy/10 flex items-center justify-center shrink-0">
+                    <Mail className="w-4 h-4 text-tec-navy" />
                   </div>
-                ))}
+                  <div className="min-w-0">
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Email</p>
+                    <p className="text-xs font-bold text-slate-800 truncate">{displayEmail}</p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-3 p-3 rounded-xl bg-slate-50 border border-slate-100">
+                  <div className="w-8 h-8 rounded-lg bg-tec-navy/10 flex items-center justify-center shrink-0">
+                    <Phone className="w-4 h-4 text-tec-navy" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Mobile</p>
+                    <p className="text-xs font-bold text-slate-800 truncate">{displayMobile}</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Apply CTA */}
+              <div className="px-5 pb-5">
+                <button
+                  onClick={() => navigate('/application-form')}
+                  className="w-full px-4 py-2.5 rounded-xl bg-tec-navy hover:bg-tec-navy-dark text-white font-bold text-sm flex items-center justify-center gap-2 transition shadow-md cursor-pointer"
+                >
+                  <FileText className="w-4 h-4" />
+                  <span>Fill Application Form</span>
+                  <ChevronRight className="w-4 h-4" />
+                </button>
               </div>
             </div>
-
           </div>
 
-          {/* Official Signatures Section for Printed PDF */}
-          <div className="pt-8 mt-6 border-t border-slate-200 flex items-end justify-between text-xs text-slate-500">
+          {/* ── Right: My Application Panel ── */}
+          <div className="lg:col-span-8 space-y-4">
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-lg p-6 h-full">
+              <div className="flex items-center justify-between border-b border-slate-100 pb-4 mb-5">
+                <div>
+                  <h3 className="text-base font-extrabold text-slate-900">My Application</h3>
+                  <p className="text-xs text-slate-500 mt-0.5">Track your submitted application status</p>
+                </div>
+                <div className="w-10 h-10 rounded-xl bg-tec-navy/10 flex items-center justify-center">
+                  <BookOpen className="w-5 h-5 text-tec-navy" />
+                </div>
+              </div>
+
+              {application ? (
+                /* If application exists */
+                <div className="space-y-4">
+                  <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Application ID</span>
+                      <span className="text-sm font-extrabold text-tec-navy">{application.applicationId || 'N/A'}</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Status</span>
+                      <span className={`text-xs font-extrabold px-3 py-1 rounded-full ${
+                        application.status === 'Approved' ? 'bg-emerald-100 text-emerald-800' :
+                        application.status === 'Rejected' ? 'bg-rose-100 text-rose-800' :
+                        'bg-amber-100 text-amber-800'
+                      }`}>
+                        {application.status || 'Pending'}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Payment</span>
+                      <span className={`text-xs font-extrabold px-3 py-1 rounded-full ${
+                        application.feePaid ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
+                      }`}>
+                        {application.feePaid ? '✓ Fee Paid (₹500)' : '⚠ Fee Pending'}
+                      </span>
+                    </div>
+                  </div>
+                  <Link
+                    to="/payment"
+                    className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-tec-gold hover:bg-tec-gold-hover text-slate-950 font-bold text-sm transition shadow-md"
+                  >
+                    View Full Application
+                    <ArrowRight className="w-4 h-4" />
+                  </Link>
+                </div>
+              ) : (
+                /* No application yet */
+                <div className="flex flex-col items-center justify-center py-16 text-center space-y-4">
+                  <div className="w-20 h-20 rounded-full bg-slate-100 border-2 border-dashed border-slate-300 flex items-center justify-center">
+                    <Inbox className="w-9 h-9 text-slate-400" />
+                  </div>
+                  <div>
+                    <p className="text-base font-bold text-slate-700">No applied applications yet</p>
+                    <p className="text-xs text-slate-500 mt-1 max-w-xs mx-auto">
+                      You have not submitted an application for admission yet. Click below to start your online application.
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => navigate('/application-form')}
+                    className="mt-2 px-6 py-2.5 rounded-xl bg-tec-navy hover:bg-tec-navy-dark text-white font-extrabold text-sm flex items-center gap-2 transition shadow-md cursor-pointer"
+                  >
+                    <FileText className="w-4 h-4" />
+                    <span>Start Application</span>
+                    <ArrowRight className="w-4 h-4" />
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* ── Course List Section (like Home page) ── */}
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-lg p-6 sm:p-8">
+          <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 mb-6">
             <div>
-              <div className="h-10 border-b border-dashed border-slate-400 w-40 mb-1"></div>
-              <span>Applicant Signature</span>
+              <span className="text-xs font-bold text-tec-navy uppercase tracking-widest">Academic Programs</span>
+              <h2 className="text-xl font-extrabold text-slate-900 mt-1">Courses Offered</h2>
+              <p className="text-xs text-slate-500 mt-0.5">Explore UG &amp; PG programs available for {academicYear || COLLEGE_CONFIG.academicYear}</p>
             </div>
-            <div className="text-center">
-              <span className="block font-bold text-slate-700">TNEA Code 1517</span>
-              <span>Thirumalai Engineering College</span>
-            </div>
-            <div className="text-right">
-              <div className="h-10 border-b border-dashed border-slate-400 w-40 mb-1 ml-auto"></div>
-              <span>Admissions Officer Signature</span>
+
+            {/* UG / PG Tabs */}
+            <div className="inline-flex p-1 bg-slate-100 rounded-lg border border-slate-200">
+              <button
+                onClick={() => setActiveTab('UG')}
+                className={`px-4 py-1.5 rounded-md text-sm font-bold transition ${
+                  activeTab === 'UG' ? 'bg-tec-navy text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                UG ({ugCount})
+              </button>
+              <button
+                onClick={() => setActiveTab('PG')}
+                className={`px-4 py-1.5 rounded-md text-sm font-bold transition ${
+                  activeTab === 'PG' ? 'bg-tec-navy text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                PG ({pgCount})
+              </button>
             </div>
           </div>
 
+          {/* Course Cards Grid */}
+          {loading ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              {[1, 2, 3, 4].map((n) => (
+                <div key={n} className="bg-slate-50 rounded-xl border border-slate-200 p-5 animate-pulse space-y-3">
+                  <div className="h-3 bg-slate-200 rounded w-1/2" />
+                  <div className="h-5 bg-slate-200 rounded w-3/4" />
+                  <div className="h-3 bg-slate-100 rounded w-full" />
+                </div>
+              ))}
+            </div>
+          ) : filteredDepartments.length === 0 ? (
+            <div className="text-center py-10 text-slate-500 font-medium bg-slate-50 rounded-xl border border-slate-200">
+              No programs found for {activeTab} Degree.
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              {filteredDepartments.map((dept) => (
+                <div
+                  key={dept.id}
+                  className="bg-white rounded-xl border border-slate-200 p-4 hover:border-tec-navy hover:shadow-md transition flex flex-col justify-between group"
+                >
+                  <div>
+                    <div className="flex items-center justify-between mb-3">
+                      <span className="px-2.5 py-0.5 rounded bg-blue-50 text-tec-navy text-[11px] font-bold">
+                        {dept.program_level}
+                      </span>
+                      <span className="text-xs text-slate-400 font-medium">{dept.duration}</span>
+                    </div>
+                    <h3 className="text-sm font-bold text-slate-900 group-hover:text-tec-navy transition leading-snug">
+                      {dept.displayName}
+                    </h3>
+                  </div>
+
+                  <div className="pt-4 mt-3 border-t border-slate-100 flex items-center justify-between">
+                    <span className="text-[11px] text-slate-400 font-medium">
+                      {dept.department_code && dept.department_code !== '1517' ? `Code ${dept.department_code}` : 'TNEA 1517'}
+                    </span>
+                    <button
+                      onClick={() => navigate(`/application-form?degree=${dept.program_level}&dept=${encodeURIComponent(dept.displayName)}`)}
+                      className="text-xs font-bold text-tec-navy hover:text-tec-gold flex items-center gap-1 group-hover:translate-x-1 transition-transform cursor-pointer"
+                    >
+                      <span>Apply</span>
+                      <ArrowRight className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
       </div>

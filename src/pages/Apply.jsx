@@ -1,1002 +1,847 @@
-import React, { useState, useEffect } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
-import { useForm, useFieldArray, Controller } from 'react-hook-form';
-import { zodResolver } from '@hookform/resolvers/zod';
-import { applicationSchema } from '../utils/validation';
-import { submitApplication, saveDraft, getSavedDraft } from '../services/api';
-import { useAuth } from '../context/AuthContext';
-import { 
-  COLLEGE_INFO, UG_PROGRAMS, PG_PROGRAMS, COMMUNITIES, RELIGIONS, STATES 
-} from '../utils/constants';
-import { Input } from '../components/common/Input';
-import { Select } from '../components/common/Select';
-import { FileUpload } from '../components/common/FileUpload';
-import { Button } from '../components/common/Button';
-import { SectionNav, SECTIONS } from '../components/application/SectionNav';
-import { Calculator, Save, ArrowRight, Plus, Trash2, X, GraduationCap } from 'lucide-react';
-
-const REGULATION_OPTIONS = ['Regulation 2021', 'Regulation 2017', 'Regulation 2013', 'Regulation 2008', 'N/A'];
-
-/**
- * Nested Qualification Item Component
- * Renders Level, Board/Univ, Regulation, School/College, Year, Overall % and nested Subject Table
- */
-function QualificationItem({ qualIndex, control, register, errors, watch, removeQual, canRemove }) {
-  const { fields: subjectFields, append: appendSubject, remove: removeSubject } = useFieldArray({
-    control,
-    name: `qualifications.${qualIndex}.subjects`
-  });
-
-  const currentLevel = watch ? watch(`qualifications.${qualIndex}.level`) : '';
-  const showRegulationAndCode = currentLevel === 'UG Degree' || currentLevel === 'Diploma' || currentLevel === 'Other Certificate';
-
-  return (
-    <div className="bg-slate-50 p-5 rounded-xl border border-slate-200 space-y-5 relative transition hover:border-tec-navy/30">
-      
-      {/* Header Bar */}
-      <div className="flex items-center justify-between border-b border-slate-200 pb-3">
-        <h3 className="text-sm font-bold text-tec-navy uppercase tracking-wider flex items-center gap-2">
-          <GraduationCap className="w-4 h-4 text-tec-gold" />
-          <span>Qualification #{qualIndex + 1}</span>
-        </h3>
-        {canRemove && (
-          <button
-            type="button"
-            onClick={() => removeQual(qualIndex)}
-            className="text-xs text-rose-600 font-bold hover:underline flex items-center gap-1"
-          >
-            <Trash2 className="w-3.5 h-3.5" />
-            <span>Remove Block</span>
-          </button>
-        )}
-      </div>
-
-      {/* Even 3-Column Grid Layout for Labels & Inputs */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5 items-start">
-        <Select
-          label="Qualification Level"
-          options={['SSLC (10th)', 'HSC (12th)', 'Diploma', 'UG Degree', 'Other Certificate']}
-          required
-          error={errors.qualifications?.[qualIndex]?.level}
-          {...register(`qualifications.${qualIndex}.level`)}
-        />
-
-        <Input
-          label="Board / University"
-          placeholder="e.g. State Board / Anna Univ"
-          required
-          error={errors.qualifications?.[qualIndex]?.boardOrUniversity}
-          {...register(`qualifications.${qualIndex}.boardOrUniversity`)}
-        />
-
-        {showRegulationAndCode && (
-          <Select
-            label="Academic Regulation"
-            options={REGULATION_OPTIONS}
-            placeholder="Select Regulation"
-            error={errors.qualifications?.[qualIndex]?.regulation}
-            {...register(`qualifications.${qualIndex}.regulation`)}
-          />
-        )}
-
-        <Input
-          label="School / College Name"
-          placeholder="e.g. Govt HSS / TEC College"
-          required
-          error={errors.qualifications?.[qualIndex]?.institutionName}
-          {...register(`qualifications.${qualIndex}.institutionName`)}
-        />
-
-        <Input
-          label="Year of Passing"
-          placeholder="YYYY (e.g. 2024)"
-          required
-          error={errors.qualifications?.[qualIndex]?.yearOfPassing}
-          {...register(`qualifications.${qualIndex}.yearOfPassing`)}
-        />
-
-        <Input
-          label="Overall Percentage (%)"
-          type="number"
-          step="0.1"
-          placeholder="e.g. 88.5"
-          required
-          error={errors.qualifications?.[qualIndex]?.overallPercentage}
-          {...register(`qualifications.${qualIndex}.overallPercentage`)}
-        />
-      </div>
-
-      {/* Subject Wise Table */}
-      <div className="pt-2">
-        <div className="flex items-center justify-between mb-2">
-          <label className="text-xs font-bold text-slate-700 uppercase tracking-wider">
-            Subject-wise Marks & Breakdown:
-          </label>
-        </div>
-
-        <div className="overflow-x-auto border border-slate-200 rounded-lg bg-white shadow-2xs">
-          <table className="w-full text-left border-collapse text-xs">
-            <thead>
-              <tr className="bg-tec-navy/5 border-b border-slate-200 text-tec-navy font-bold">
-                {showRegulationAndCode && <th className="p-2.5 w-36">Subject Code</th>}
-                <th className="p-2.5">Subject Name</th>
-                <th className="p-2.5 w-32">Marks Obtained</th>
-                <th className="p-2.5 w-32">Max Marks</th>
-                <th className="p-2.5 w-16 text-center">Action</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {subjectFields.map((sub, subIdx) => (
-                <tr key={sub.id} className="hover:bg-slate-50">
-                  {showRegulationAndCode && (
-                    <td className="p-2">
-                      <Input
-                        placeholder="e.g. CS8591"
-                        error={errors.qualifications?.[qualIndex]?.subjects?.[subIdx]?.subjectCode}
-                        {...register(`qualifications.${qualIndex}.subjects.${subIdx}.subjectCode`)}
-                      />
-                    </td>
-                  )}
-                  <td className="p-2">
-                    <Input
-                      placeholder="e.g. Mathematics"
-                      error={errors.qualifications?.[qualIndex]?.subjects?.[subIdx]?.subjectName}
-                      {...register(`qualifications.${qualIndex}.subjects.${subIdx}.subjectName`)}
-                    />
-                  </td>
-                  <td className="p-2">
-                    <Input
-                      type="number"
-                      placeholder="Obtained"
-                      error={errors.qualifications?.[qualIndex]?.subjects?.[subIdx]?.marksObtained}
-                      {...register(`qualifications.${qualIndex}.subjects.${subIdx}.marksObtained`)}
-                    />
-                  </td>
-                  <td className="p-2">
-                    <Input
-                      type="number"
-                      placeholder="100"
-                      error={errors.qualifications?.[qualIndex]?.subjects?.[subIdx]?.maxMarks}
-                      {...register(`qualifications.${qualIndex}.subjects.${subIdx}.maxMarks`)}
-                    />
-                  </td>
-                  <td className="p-2 text-center">
-                    {subjectFields.length > 1 && (
-                      <button
-                        type="button"
-                        onClick={() => removeSubject(subIdx)}
-                        className="p-1 text-slate-400 hover:text-rose-600 rounded transition"
-                        title="Remove Subject"
-                      >
-                        <X className="w-4 h-4 mx-auto" />
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-
-        <div className="mt-2.5 flex justify-end">
-          <button
-            type="button"
-            onClick={() => appendSubject({ subjectCode: '', subjectName: '', marksObtained: '', maxMarks: 100 })}
-            className="text-xs font-bold text-tec-navy hover:text-tec-gold flex items-center gap-1 bg-slate-100 px-3 py-1.5 rounded-md border border-slate-200 hover:bg-slate-200 transition"
-          >
-            <Plus className="w-3.5 h-3.5 text-tec-navy" />
-            <span>Add Subject Row</span>
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { Navigate, useNavigate, useSearchParams } from 'react-router-dom';
+import {
+  getFormModulesList,
+  getFormFieldsList,
+  getDepartmentsList,
+  submitApplication,
+  uploadDocument
+} from '../services/api';
+import { useAuth } from '../Context/AuthContext';
+import { COLLEGE_CONFIG } from '../Config/collegeConfig';
+import { realtimeManager } from '../services/websocket';
+import {
+  FileText, ArrowRight, ArrowLeft, CheckCircle2,
+  Plus, Trash2, Upload, ShieldCheck, Save, BookmarkCheck, RotateCcw
+} from 'lucide-react';
 
 export function Apply() {
-  const [searchParams] = useSearchParams();
+  const { user, showToast, academicYear } = useAuth();
   const navigate = useNavigate();
-  const { user, showToast, refreshApplicationStatus } = useAuth();
-  
-  const [activeSection, setActiveSection] = useState('section-a');
-  const [lastSavedTime, setLastSavedTime] = useState('');
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [searchParams] = useSearchParams();
 
-  // Pre-fill degree and department if coming from home page cards
-  const paramDegree = searchParams.get('degree') || 'UG';
-  const paramDept = searchParams.get('dept') || '';
+  // URL query pre-selections (e.g. /apply?degree=UG&dept=...)
+  const initialDegree = searchParams.get('degree') || 'UG';
+  const initialDept = searchParams.get('dept') || '';
 
-  const {
-    register,
-    handleSubmit,
-    control,
-    watch,
-    setValue,
-    formState: { errors },
-  } = useForm({
-    resolver: zodResolver(applicationSchema),
-    defaultValues: {
-      degreeLevel: paramDegree,
-      preference1: paramDept || (paramDegree === 'PG' ? PG_PROGRAMS[0] : UG_PROGRAMS[0]),
-      preference2: paramDegree === 'PG' ? PG_PROGRAMS[1] : UG_PROGRAMS[1],
-      preference3: paramDegree === 'PG' ? PG_PROGRAMS[2] : UG_PROGRAMS[2],
+  // API State
+  const [modules, setModules] = useState([]);
+  const [fields, setFields] = useState([]);
+  const [departments, setDepartments] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
 
-      fullName: user?.fullName || '',
-      dob: '2005-05-15',
-      gender: 'Male',
-      nationality: 'Indian',
-      religion: 'Hinduism',
-      community: 'BC',
-      caste: 'Mudaliar',
-      aadharNo: '789012345678',
-
-      address: '123 Gandhi Road, Kilambi',
-      city: 'Kanchipuram',
-      district: 'Kancheepuram',
-      state: 'Tamil Nadu',
-      pincode: '631551',
-      mobile: user?.mobile || '9876543210',
-      email: user?.email || 'applicant@example.com',
-      parentName: 'Sundaram S',
-      parentMobile: '9443322110',
-
-      qualifications: [
-        {
-          level: 'SSLC (10th)',
-          boardOrUniversity: 'State Board (Tamil Nadu)',
-          institutionName: 'Govt Higher Secondary School',
-          yearOfPassing: '2022',
-          overallPercentage: 88.5,
-          regulation: 'N/A',
-          subjects: [
-            { subjectCode: '1001', subjectName: 'Language (Tamil/English)', marksObtained: 90, maxMarks: 100 },
-            { subjectCode: '1002', subjectName: 'Science', marksObtained: 88, maxMarks: 100 },
-            { subjectCode: '1003', subjectName: 'Mathematics', marksObtained: 92, maxMarks: 100 },
-          ]
-        },
-        {
-          level: 'HSC (12th)',
-          boardOrUniversity: 'State Board (Tamil Nadu)',
-          institutionName: 'Govt Higher Secondary School',
-          yearOfPassing: '2024',
-          overallPercentage: 91.0,
-          regulation: 'N/A',
-          subjects: [
-            { subjectCode: '2001', subjectName: 'Mathematics', marksObtained: 94, maxMarks: 100 },
-            { subjectCode: '2002', subjectName: 'Physics', marksObtained: 92, maxMarks: 100 },
-            { subjectCode: '2003', subjectName: 'Chemistry', marksObtained: 90, maxMarks: 100 },
-          ]
-        }
-      ],
-
-      counsellingCode: '1517',
-      tneaAppNo: 'TNEA2026-8912',
-      entranceRank: '',
-
-      doc10th: { name: '10th_Marksheet.pdf', size: '240 KB' },
-      doc12th: { name: '12th_Marksheet.pdf', size: '310 KB' },
-      docUgDegree: { name: 'UG_Consolidated_Marksheet.pdf', size: '420 KB' },
-      docTransferCert: { name: 'Transfer_Certificate.pdf', size: '180 KB' },
-      docCommunityCert: { name: 'Community_Certificate.pdf', size: '190 KB' },
-      docAadhar: { name: 'Aadhar_Card.pdf', size: '150 KB' },
-      docPhoto: { name: 'Passport_Photo.jpg', size: '95 KB' },
-
-      declarationAgreed: true,
-    },
+  // Form Navigation & Values State
+  const [currentModuleIndex, setCurrentModuleIndex] = useState(0);
+  const [formValues, setFormValues] = useState({
+    program: initialDegree,
+    department: initialDept,
+    qualifications: [],
+    academic_performance: [],
+    certificates: [],
+    declaration: false,
   });
-
-  // Qualifications Field Array
-  const { fields: qualFields, append: appendQual, remove: removeQual } = useFieldArray({
-    control,
-    name: 'qualifications'
-  });
-
-  // Watch fields for live computations
-  const degreeLevel = watch('degreeLevel');
-  const pref1 = watch('preference1');
-  const pref2 = watch('preference2');
-  const pref3 = watch('preference3');
-  const formValues = watch();
-
-  // Dynamic Filtering for 3 Course Preferences
-  const availableCourses = React.useMemo(() => {
-    return degreeLevel === 'PG' ? PG_PROGRAMS : UG_PROGRAMS;
-  }, [degreeLevel]);
-
-  const optionsPref1 = React.useMemo(() => {
-    return availableCourses.filter(c => c !== pref2 && c !== pref3);
-  }, [availableCourses, pref2, pref3]);
-
-  const optionsPref2 = React.useMemo(() => {
-    return availableCourses.filter(c => c !== pref1 && c !== pref3);
-  }, [availableCourses, pref1, pref3]);
-
-  const optionsPref3 = React.useMemo(() => {
-    return availableCourses.filter(c => c !== pref1 && c !== pref2);
-  }, [availableCourses, pref1, pref2]);
-
-  // Adjust preferences and append UG Degree block if degree level changes
-  useEffect(() => {
-    const courses = degreeLevel === 'PG' ? PG_PROGRAMS : UG_PROGRAMS;
-    if (!courses.includes(pref1)) setValue('preference1', courses[0]);
-    if (!courses.includes(pref2)) setValue('preference2', courses[1] || courses[0]);
-    if (!courses.includes(pref3)) setValue('preference3', courses[2] || courses[0]);
-
-    // If PG is selected, check if UG Degree qualification block exists
-    if (degreeLevel === 'PG') {
-      const currentQuals = formValues.qualifications || [];
-      const hasUg = currentQuals.some(q => q?.level?.includes('UG Degree'));
-      if (!hasUg) {
-        appendQual({
-          level: 'UG Degree',
-          boardOrUniversity: 'Anna University / Recognized Univ',
-          institutionName: 'Thirumalai Engineering College',
-          yearOfPassing: '2026',
-          overallPercentage: 82.5,
-          regulation: 'Regulation 2021',
-          subjects: [
-            { subjectCode: 'CS8591', subjectName: 'Computer Networks', marksObtained: 85, maxMarks: 100 },
-            { subjectCode: 'CS8501', subjectName: 'Theory of Computation', marksObtained: 80, maxMarks: 100 },
-            { subjectCode: 'CS8592', subjectName: 'OOAD', marksObtained: 83, maxMarks: 100 },
-          ]
-        });
-      }
-    }
-  }, [degreeLevel, pref1, pref2, pref3, setValue, formValues.qualifications, appendQual]);
-
-  // Compute TNEA Cutoff Score dynamically from HSC subjects
-  const computedCutoff = React.useMemo(() => {
-    const quals = formValues.qualifications || [];
-    const hsc = quals.find(q => q?.level?.includes('12th') || q?.level?.includes('HSC'));
-    if (!hsc || !hsc.subjects || hsc.subjects.length === 0) return null;
-
-    const getSubPct = (regex) => {
-      const sub = hsc.subjects.find(s => regex.test(s?.subjectName || ''));
-      if (!sub || !sub.maxMarks) return 0;
-      return (parseFloat(sub.marksObtained || 0) / parseFloat(sub.maxMarks || 100)) * 100;
-    };
-
-    const m = getSubPct(/math|maths|mathematics/i);
-    const p = getSubPct(/phys|physics/i);
-    const c = getSubPct(/chem|chemistry/i);
-
-    if (!m && !p && !c) return null;
-    return (m + (p / 2) + (c / 2)).toFixed(2);
-  }, [formValues.qualifications]);
+  const [errors, setErrors] = useState({});
+  const [draftSavedAt, setDraftSavedAt] = useState(null);
 
   // Load draft from localStorage on mount
   useEffect(() => {
-    const draft = getSavedDraft();
-    if (draft && draft.data) {
-      Object.keys(draft.data).forEach((key) => {
-        setValue(key, draft.data[key]);
-      });
-      if (draft.savedAt) {
-        setLastSavedTime(new Date(draft.savedAt).toLocaleTimeString());
+    const rawDraft = localStorage.getItem('tec_application_draft');
+    if (rawDraft) {
+      try {
+        const parsed = JSON.parse(rawDraft);
+        if (parsed && parsed.formValues) {
+          setFormValues((prev) => ({ ...prev, ...parsed.formValues }));
+          if (parsed.currentModuleIndex !== undefined) {
+            setCurrentModuleIndex(parsed.currentModuleIndex);
+          }
+          if (parsed.savedAt) {
+            setDraftSavedAt(parsed.savedAt);
+          }
+          showToast(`Restored saved application draft (${parsed.savedAt || 'previous session'})`, 'info');
+        }
+      } catch (e) {
+        console.error('Failed to parse saved draft:', e);
       }
     }
-  }, [setValue]);
-
-  // Auto-save draft on form change (debounced)
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      saveDraft(formValues);
-      setLastSavedTime(new Date().toLocaleTimeString());
-    }, 2000);
-    return () => clearTimeout(timer);
-  }, [formValues]);
-
-  // Handle section scrolling spy
-  useEffect(() => {
-    const handleScroll = () => {
-      const scrollPos = window.scrollY + 200;
-      for (let i = SECTIONS.length - 1; i >= 0; i--) {
-        const sec = document.getElementById(SECTIONS[i].id);
-        if (sec && sec.offsetTop <= scrollPos) {
-          setActiveSection(SECTIONS[i].id);
-          break;
-        }
-      }
-    };
-    window.addEventListener('scroll', handleScroll);
-    return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
-  // Manual save draft trigger button
-  const handleManualSaveDraft = () => {
-    saveDraft(formValues);
-    const now = new Date().toLocaleTimeString();
-    setLastSavedTime(now);
-    showToast(`Draft saved to device storage at ${now}`, 'success');
-  };
-
-  // Scroll to first invalid field when Zod validation fails
-  const onFormError = (errorsObj) => {
-    const errorKeys = Object.keys(errorsObj);
-    if (errorKeys.length > 0) {
-      showToast(`Form incomplete. Please resolve highlighted errors (${errorKeys.length} issues).`, 'error');
-      const firstErrorKey = errorKeys[0];
-      const el = document.getElementsByName(firstErrorKey)[0];
-      if (el) {
-        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        el.focus();
-      }
-    }
-  };
-
-  const onFinalSubmit = async (data) => {
-    setIsSubmitting(true);
+  // Fetch Form Schema from API
+  const fetchFormSchema = useCallback(async () => {
     try {
-      await submitApplication(data);
-      await refreshApplicationStatus();
-      showToast('Application submitted successfully to Thirumalai Engineering College!', 'success');
-      navigate('/status');
+      setLoading(true);
+      const [modulesData, fieldsData, deptsData] = await Promise.all([
+        getFormModulesList().catch(() => []),
+        getFormFieldsList().catch(() => []),
+        getDepartmentsList().catch(() => []),
+      ]);
+
+      const rawModules = Array.isArray(modulesData) ? modulesData : (modulesData?.data || []);
+      const rawFields = Array.isArray(fieldsData) ? fieldsData : (fieldsData?.data || []);
+      const rawDepts = Array.isArray(deptsData) ? deptsData : (deptsData?.data || []);
+
+      const sortedModules = rawModules
+        .filter((m) => m.is_active !== false)
+        .sort((a, b) => (a.display_order || 0) - (b.display_order || 0));
+
+      setModules(sortedModules);
+      setFields(rawFields.filter((f) => f.is_active !== false));
+      setDepartments(rawDepts);
+
+      // Initialize default arrays for dynamic fields
+      setFormValues((prev) => {
+        const next = { ...prev };
+        rawFields.forEach((f) => {
+          if (f.field_type === 'array' && !next[f.field_key]) {
+            next[f.field_key] = [];
+          }
+        });
+        return next;
+      });
     } catch (err) {
-      showToast(err.message || 'Submission failed. Please check details.', 'error');
+      console.error('Failed to load form schema:', err);
+      showToast('Failed to load application form fields.', 'error');
     } finally {
-      setIsSubmitting(false);
+      setLoading(false);
+    }
+  }, [showToast]);
+
+  useEffect(() => {
+    fetchFormSchema();
+  }, [fetchFormSchema]);
+
+  // Live WebSocket subscription for dynamic backend schema edits
+  useEffect(() => {
+    const unsubscribe = realtimeManager.subscribe((payload) => {
+      console.log('[Apply] Real-time schema update received:', payload);
+      fetchFormSchema();
+    });
+    return unsubscribe;
+  }, [fetchFormSchema]);
+
+  // Active Module & Fields memoization
+  const currentModule = modules[currentModuleIndex] || null;
+  const currentModuleFields = useMemo(() => {
+    if (!currentModule) return [];
+    return fields
+      .filter((f) => f.form_module_id === currentModule.id)
+      .sort((a, b) => (a.display_order || 0) - (b.display_order || 0));
+  }, [currentModule, fields]);
+
+  // Dynamic Completion Percentage Memoization
+  const completionPercentage = useMemo(() => {
+    if (!fields.length) return 0;
+    let requiredCount = 0;
+    let filledCount = 0;
+
+    fields.forEach((f) => {
+      if (f.required) {
+        requiredCount += 1;
+        const val = formValues[f.field_key];
+        if (f.field_type === 'array') {
+          if (Array.isArray(val) && val.length > 0) filledCount += 1;
+        } else if (f.field_type === 'checkbox') {
+          if (Boolean(val)) filledCount += 1;
+        } else if (val !== undefined && val !== null && val !== '') {
+          filledCount += 1;
+        }
+      }
+    });
+
+    return requiredCount > 0 ? Math.round((filledCount / requiredCount) * 100) : 0;
+  }, [fields, formValues]);
+
+  // Save Draft to localStorage
+  const handleSaveDraft = () => {
+    try {
+      const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      const draftPayload = {
+        formValues,
+        currentModuleIndex,
+        savedAt: timeStr,
+      };
+      localStorage.setItem('tec_application_draft', JSON.stringify(draftPayload));
+      setDraftSavedAt(timeStr);
+      showToast(`Application draft saved at ${timeStr}`, 'success');
+    } catch (e) {
+      showToast('Failed to save application draft.', 'error');
     }
   };
 
-  return (
-    <div className="min-h-screen bg-slate-100 py-6 sm:py-8 px-3 sm:px-6 lg:px-8 w-full max-w-full overflow-hidden">
-      
-      {/* Top Application Header */}
-      <div className="max-w-7xl mx-auto mb-8 bg-tec-navy text-white rounded-2xl p-4 sm:p-6 lg:p-8 shadow-xl flex flex-col md:flex-row md:items-center justify-between gap-6 border-b-4 border-tec-gold overflow-hidden">
-        <div>
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded bg-white/10 text-tec-gold text-xs font-bold mb-2">
-            <span>TNEA Counselling Code: {COLLEGE_INFO.counsellingCode}</span>
-          </div>
-          <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight">
-            Online Admission Application Form
-          </h1>
-          <p className="text-xs sm:text-sm text-slate-300 mt-1">
-            Academic Session 2026 - 2027 • Complete all mandatory sections below
-          </p>
-        </div>
+  // Reset Form – clears localStorage draft and resets all values to defaults
+  const handleResetForm = () => {
+    if (!window.confirm('Reset the entire form? This will clear all entered data and the saved draft.')) return;
+    localStorage.removeItem('tec_application_draft');
+    setFormValues({
+      program: initialDegree,
+      department: initialDept,
+      qualifications: [],
+      academic_performance: [],
+      certificates: [],
+      declaration: false,
+    });
+    setCurrentModuleIndex(0);
+    setErrors({});
+    setDraftSavedAt(null);
+    showToast('Form has been reset. All data cleared.', 'info');
+  };
 
-        <div className="flex items-center gap-3">
-          <Button
-            type="button"
-            variant="accent"
-            onClick={handleManualSaveDraft}
-            className="text-xs font-bold"
-          >
-            <Save className="w-4 h-4" />
-            <span>Save Draft</span>
-          </Button>
+  // Handle Simple Input Change
+  const handleInputChange = (key, value) => {
+    setFormValues((prev) => ({ ...prev, [key]: value }));
+    if (errors[key]) {
+      setErrors((prev) => ({ ...prev, [key]: null }));
+    }
+  };
+
+  // Handle Array Row Operations
+  const handleAddArrayRow = (fieldKey, columns) => {
+    const newRow = {};
+    columns.forEach((col) => {
+      newRow[col.key] = col.type === 'number' ? '' : col.type === 'select' && col.options?.length ? col.options[0] : '';
+    });
+    setFormValues((prev) => ({
+      ...prev,
+      [fieldKey]: [...(prev[fieldKey] || []), newRow],
+    }));
+  };
+
+  const handleRemoveArrayRow = (fieldKey, rowIndex) => {
+    setFormValues((prev) => ({
+      ...prev,
+      [fieldKey]: (prev[fieldKey] || []).filter((_, idx) => idx !== rowIndex),
+    }));
+  };
+
+  const handleArrayRowChange = (fieldKey, rowIndex, colKey, value, columns) => {
+    setFormValues((prev) => {
+      const list = [...(prev[fieldKey] || [])];
+      const updatedRow = { ...list[rowIndex], [colKey]: value };
+
+      // Auto-calculate percentage if max & obtained marks are provided
+      if (colKey === 'maximum_marks' || colKey === 'obtained_marks') {
+        const max = parseFloat(colKey === 'maximum_marks' ? value : updatedRow.maximum_marks);
+        const obt = parseFloat(colKey === 'obtained_marks' ? value : updatedRow.obtained_marks);
+        if (max > 0 && !isNaN(obt)) {
+          updatedRow.percentage = ((obt / max) * 100).toFixed(2);
+        }
+      }
+
+      list[rowIndex] = updatedRow;
+      return { ...prev, [fieldKey]: list };
+    });
+  };
+
+  // Handle File Upload
+  const handleFileUpload = async (key, file) => {
+    if (!file) return;
+    try {
+      showToast(`Uploading ${file.name}...`, 'info');
+      const res = await uploadDocument(file, key).catch(() => ({ file_url: file.name }));
+      setFormValues((prev) => ({
+        ...prev,
+        [key]: res.file_url || file.name,
+      }));
+      showToast(`Uploaded ${file.name} successfully`, 'success');
+    } catch (err) {
+      showToast(`Failed to upload ${file.name}`, 'error');
+    }
+  };
+
+  // Validate Current Module Fields
+  const validateCurrentModule = () => {
+    const newErrors = {};
+    currentModuleFields.forEach((field) => {
+      const val = formValues[field.field_key];
+
+      if (field.required) {
+        if (field.field_type === 'array') {
+          if (!val || val.length === 0) {
+            newErrors[field.field_key] = `Add at least one entry for ${field.field_label}`;
+          }
+        } else if (field.field_type === 'checkbox') {
+          if (!val) {
+            newErrors[field.field_key] = 'You must accept the declaration to proceed';
+          }
+        } else if (val === undefined || val === null || val === '') {
+          newErrors[field.field_key] = `${field.field_label} is required`;
+        }
+      }
+
+      // Regex validation if provided
+      if (val && field.validation) {
+        try {
+          const regex = new RegExp(field.validation);
+          if (!regex.test(String(val))) {
+            newErrors[field.field_key] = `Invalid format for ${field.field_label}`;
+          }
+        } catch (e) {
+          // Ignore invalid regex
+        }
+      }
+    });
+
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
+
+  // Module Stepper Handlers
+  const handleNext = () => {
+    if (validateCurrentModule()) {
+      if (currentModuleIndex < modules.length - 1) {
+        setCurrentModuleIndex((prev) => prev + 1);
+        window.scrollTo({ top: 0, behavior: 'instant' });
+      }
+    } else {
+      showToast('Please fix the highlighted errors before continuing.', 'error');
+    }
+  };
+
+  const handleBack = () => {
+    if (currentModuleIndex > 0) {
+      setCurrentModuleIndex((prev) => prev - 1);
+      window.scrollTo({ top: 0, behavior: 'instant' });
+    }
+  };
+
+  // Final Form Submission
+  const handleSubmitForm = async (e) => {
+    e.preventDefault();
+    if (!validateCurrentModule()) {
+      showToast('Please complete all required fields.', 'error');
+      return;
+    }
+
+    try {
+      setSubmitting(true);
+      await submitApplication(formValues);
+      localStorage.removeItem('tec_application_draft');
+      showToast('Application submitted successfully!', 'success');
+      navigate('/payment');
+    } catch (err) {
+      const errMsg = err.response?.data?.detail || err.response?.data?.message || err.message || 'Failed to submit application.';
+      showToast(typeof errMsg === 'object' ? JSON.stringify(errMsg) : errMsg, 'error');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  // Early Returns AFTER all Hook declarations (Rules of Hooks)
+  if (!user) {
+    return <Navigate to="/login" replace />;
+  }
+
+  if (loading) {
+    return (
+      <div className="min-h-[calc(100vh-80px)] bg-slate-50 flex items-center justify-center py-12">
+        <div className="text-center space-y-3">
+          <div className="w-12 h-12 border-4 border-tec-navy border-t-transparent rounded-full animate-spin mx-auto" />
+          <p className="text-slate-600 font-bold text-sm">Loading dynamic application form fields...</p>
         </div>
       </div>
+    );
+  }
 
-      <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-        
-        {/* Left Sticky Progress Nav (Desktop) */}
-        <div className="hidden lg:block lg:col-span-3">
-          <SectionNav
-            activeSection={activeSection}
-            completedSections={{
-              'section-a': !!(formValues.preference1 && formValues.preference2 && formValues.preference3),
-              'section-b': !!(formValues.fullName && formValues.dob && formValues.aadharNo),
-              'section-c': !!(formValues.address && formValues.city && formValues.mobile),
-              'section-d': !!(formValues.qualifications && formValues.qualifications.length > 0),
-              'section-e': true,
-              'section-f': !!(formValues.doc10th && formValues.docTransferCert),
-              'section-g': formValues.declarationAgreed,
-            }}
-            onSaveDraft={handleManualSaveDraft}
-            lastSavedTime={lastSavedTime}
-          />
+  return (
+    <div className="min-h-screen bg-slate-100 py-8 px-4 sm:px-6 lg:px-8">
+      <div className="max-w-7xl mx-auto space-y-6">
+
+        {/* Top Header Banner with Save as Draft & Reset Form Buttons */}
+        <div className="bg-tec-navy text-white rounded-2xl p-6 sm:p-8 shadow-xl flex flex-col lg:flex-row lg:items-center justify-between gap-6 border-b-4 border-tec-gold">
+          <div>
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded bg-white/10 text-tec-gold text-xs font-bold mb-2">
+              <ShieldCheck className="w-4 h-4" />
+              <span>TNEA Counselling Code: {COLLEGE_CONFIG.counsellingCode} • Academic Year {academicYear}</span>
+            </div>
+            <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight">
+              Online Admission Application Form
+            </h1>
+            <p className="text-slate-300 text-xs sm:text-sm mt-1">
+              {COLLEGE_CONFIG.name} — Kilambi, Kanchipuram
+            </p>
+          </div>
+
+          {/* Action Buttons */}
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              onClick={handleSaveDraft}
+              className="px-4 py-2.5 rounded-xl bg-tec-gold hover:bg-tec-gold-hover text-slate-950 text-xs font-extrabold shadow-md transition flex items-center gap-2 cursor-pointer border border-amber-300"
+            >
+              <Save className="w-4 h-4" />
+              <span>Save as Draft</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={handleResetForm}
+              className="px-4 py-2.5 rounded-xl bg-rose-600/80 hover:bg-rose-600 text-white text-xs font-extrabold shadow-md transition flex items-center gap-2 cursor-pointer border border-rose-400/40"
+            >
+              <RotateCcw className="w-4 h-4" />
+              <span>Reset Form</span>
+            </button>
+          </div>
         </div>
 
-        {/* Main Application Form Sections */}
-        <div className="lg:col-span-9">
-          <form onSubmit={handleSubmit(onFinalSubmit, onFormError)} className="space-y-8">
-            
-            {/* SECTION A: PROGRAM & BRANCH SELECTION */}
-            <section id="section-a" className="bg-white rounded-2xl p-4 sm:p-6 lg:p-8 border border-slate-200 shadow-sm space-y-6 overflow-hidden">
-              <div className="flex items-center gap-3 pb-4 border-b border-slate-200">
-                <div className="w-10 h-10 rounded-lg bg-tec-navy text-white flex items-center justify-center font-bold">
-                  A
-                </div>
+        {/* Main Layout: Left Sidebar (sticky) + Right Form (scrolls) */}
+        <div className="flex items-start gap-6">
+          {/* Left Sidebar – position sticky, stays fixed while right scrolls */}
+          <div className="hidden lg:block w-72 shrink-0 sticky top-24 self-start z-10">
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-lg overflow-hidden">
+              {/* Header */}
+              <div className="px-5 pt-5 pb-3 border-b border-slate-100 flex items-center justify-between">
                 <div>
-                  <h2 className="text-lg font-extrabold text-slate-900">Section A: Program & Branch Selection</h2>
-                  <p className="text-xs text-slate-500">Select Degree Level (UG / PG) and 3 preferred engineering branches</p>
+                  <h3 className="text-base font-extrabold text-slate-900">Form Modules</h3>
+                  <p className="text-xs text-slate-500 font-medium mt-0.5">
+                    Step {currentModuleIndex + 1} of {modules.length}
+                  </p>
+                </div>
+                <div className="text-right">
+                  <span className="text-xs font-extrabold text-tec-navy">{completionPercentage}%</span>
+                  <span className="text-[10px] text-slate-400 block font-bold uppercase">Completed</span>
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
-                <Select
-                  label="Degree Level"
-                  options={['UG', 'PG']}
-                  required
-                  error={errors.degreeLevel}
-                  {...register('degreeLevel')}
-                />
-
-                <Select
-                  label="1st Preference Course"
-                  options={optionsPref1}
-                  required
-                  placeholder="Select 1st Choice"
-                  error={errors.preference1}
-                  {...register('preference1')}
-                />
-
-                <Select
-                  label="2nd Preference Course"
-                  options={optionsPref2}
-                  required
-                  placeholder="Select 2nd Choice"
-                  error={errors.preference2}
-                  {...register('preference2')}
-                />
-
-                <Select
-                  label="3rd Preference Course"
-                  options={optionsPref3}
-                  required
-                  placeholder="Select 3rd Choice"
-                  error={errors.preference3}
-                  {...register('preference3')}
-                />
-              </div>
-            </section>
-
-
-            {/* SECTION B: PERSONAL DETAILS */}
-            <section id="section-b" className="bg-white rounded-2xl p-4 sm:p-6 lg:p-8 border border-slate-200 shadow-sm space-y-6 overflow-hidden">
-              <div className="flex items-center gap-3 pb-4 border-b border-slate-200">
-                <div className="w-10 h-10 rounded-lg bg-tec-navy text-white flex items-center justify-center font-bold">
-                  B
-                </div>
-                <div>
-                  <h2 className="text-lg font-extrabold text-slate-900">Section B: Personal Details</h2>
-                  <p className="text-xs text-slate-500">Applicant identity and official identification numbers</p>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                <div className="md:col-span-2">
-                  <Input
-                    label="Full Name of Applicant (as per SSLC / 10th Marksheet)"
-                    placeholder="e.g. KARTHIK RAJA S"
-                    required
-                    error={errors.fullName}
-                    {...register('fullName')}
-                  />
-                </div>
-
-                <Input
-                  label="Date of Birth"
-                  type="date"
-                  required
-                  error={errors.dob}
-                  {...register('dob')}
-                />
-
-                <Select
-                  label="Gender"
-                  options={['Male', 'Female', 'Other']}
-                  required
-                  error={errors.gender}
-                  {...register('gender')}
-                />
-
-                <Input
-                  label="Nationality"
-                  required
-                  error={errors.nationality}
-                  {...register('nationality')}
-                />
-
-                <Select
-                  label="Religion"
-                  options={RELIGIONS}
-                  required
-                  error={errors.religion}
-                  {...register('religion')}
-                />
-
-                <Select
-                  label="Community"
-                  options={COMMUNITIES}
-                  required
-                  error={errors.community}
-                  {...register('community')}
-                />
-
-                <Input
-                  label="Caste / Sub-Caste Name"
-                  placeholder="e.g. Agamudayar / Mudaliar"
-                  required
-                  error={errors.caste}
-                  {...register('caste')}
-                />
-
-                <div className="md:col-span-2">
-                  <Input
-                    label="Aadhar Card Number (12 Digits)"
-                    placeholder="12-digit Aadhar number without spaces"
-                    required
-                    error={errors.aadharNo}
-                    {...register('aadharNo')}
+              {/* Progress Bar */}
+              <div className="px-5 pt-3">
+                <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
+                  <div
+                    className="bg-tec-navy h-full transition-all duration-300"
+                    style={{ width: `${completionPercentage}%` }}
                   />
                 </div>
               </div>
-            </section>
 
+              {/* Scrollable Module List */}
+              <div className="px-5 py-3 space-y-2 max-h-[calc(100vh-14rem)] overflow-y-auto">
+                {modules.map((mod, idx) => {
+                  const isActive = idx === currentModuleIndex;
+                  const isCompleted = idx < currentModuleIndex;
 
-            {/* SECTION C: CONTACT DETAILS */}
-            <section id="section-c" className="bg-white rounded-2xl p-4 sm:p-6 lg:p-8 border border-slate-200 shadow-sm space-y-6 overflow-hidden">
-              <div className="flex items-center gap-3 pb-4 border-b border-slate-200">
-                <div className="w-10 h-10 rounded-lg bg-tec-navy text-white flex items-center justify-center font-bold">
-                  C
-                </div>
-                <div>
-                  <h2 className="text-lg font-extrabold text-slate-900">Section C: Contact & Parent Details</h2>
-                  <p className="text-xs text-slate-500">Permanent residential address and guardian contacts</p>
-                </div>
+                  return (
+                    <button
+                      key={mod.id}
+                      type="button"
+                      onClick={() => {
+                        if (idx <= currentModuleIndex || isCompleted) {
+                          setCurrentModuleIndex(idx);
+                        }
+                      }}
+                      className={`w-full flex items-center justify-between p-3 rounded-xl text-left transition border ${
+                        isActive
+                          ? 'bg-tec-navy text-white border-tec-navy shadow-md font-bold'
+                          : isCompleted
+                          ? 'bg-emerald-50 text-slate-800 border-emerald-200 hover:bg-emerald-100/60 font-semibold cursor-pointer'
+                          : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100 font-medium'
+                      }`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <span
+                          className={`w-7 h-7 rounded-full text-xs font-black flex items-center justify-center shrink-0 ${
+                            isActive
+                              ? 'bg-tec-gold text-slate-950'
+                              : isCompleted
+                              ? 'bg-emerald-600 text-white'
+                              : 'bg-slate-200 text-slate-700'
+                          }`}
+                        >
+                          {isCompleted ? '✓' : idx + 1}
+                        </span>
+                        <span className="text-xs sm:text-sm leading-snug">{mod.module_name}</span>
+                      </div>
+                      {isCompleted && <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />}
+                    </button>
+                  );
+                })}
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                <div className="md:col-span-2">
-                  <Input
-                    label="Street Address / Door No."
-                    placeholder="House No., Street Name, Area"
-                    required
-                    error={errors.address}
-                    {...register('address')}
-                  />
-                </div>
-
-                <Input
-                  label="City / Town"
-                  required
-                  error={errors.city}
-                  {...register('city')}
-                />
-
-                <Input
-                  label="District"
-                  required
-                  error={errors.district}
-                  {...register('district')}
-                />
-
-                <Select
-                  label="State"
-                  options={STATES}
-                  required
-                  error={errors.state}
-                  {...register('state')}
-                />
-
-                <Input
-                  label="Pincode"
-                  placeholder="6-digit Pincode"
-                  required
-                  error={errors.pincode}
-                  {...register('pincode')}
-                />
-
-                <Input
-                  label="Applicant Mobile Number"
-                  type="tel"
-                  required
-                  error={errors.mobile}
-                  {...register('mobile')}
-                />
-
-                <Input
-                  label="Applicant Email Address"
-                  type="email"
-                  required
-                  error={errors.email}
-                  {...register('email')}
-                />
-
-                <Input
-                  label="Parent / Guardian Name"
-                  required
-                  error={errors.parentName}
-                  {...register('parentName')}
-                />
-
-                <Input
-                  label="Parent / Guardian Mobile Number"
-                  type="tel"
-                  required
-                  error={errors.parentMobile}
-                  {...register('parentMobile')}
-                />
-              </div>
-            </section>
-
-
-            {/* SECTION D: DYNAMIC ACADEMIC QUALIFICATIONS */}
-            <section id="section-d" className="bg-white rounded-2xl p-4 sm:p-6 lg:p-8 border border-slate-200 shadow-sm space-y-6 overflow-hidden">
-              <div className="flex items-center justify-between pb-4 border-b border-slate-200">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-lg bg-tec-navy text-white flex items-center justify-center font-bold">
-                    D
-                  </div>
-                  <div>
-                    <h2 className="text-lg font-extrabold text-slate-900">Section D: Academic Qualification</h2>
-                    <p className="text-xs text-slate-500">
-                      Add SSLC (10th), HSC (12th), Diploma, or UG Degree qualifications with regulation and subject-wise code & marks
-                    </p>
-                  </div>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => appendQual({
-                    level: degreeLevel === 'PG' ? 'UG Degree' : 'Diploma',
-                    boardOrUniversity: '',
-                    institutionName: '',
-                    yearOfPassing: '',
-                    overallPercentage: '',
-                    regulation: degreeLevel === 'PG' ? 'Regulation 2021' : 'N/A',
-                    subjects: [
-                      { subjectCode: '', subjectName: '', marksObtained: '', maxMarks: 100 }
-                    ]
-                  })}
-                  className="px-3.5 py-2 rounded-lg bg-tec-navy hover:bg-tec-navy-dark text-white text-xs font-bold flex items-center gap-1.5 shadow-xs transition"
-                >
-                  <Plus className="w-4 h-4 text-tec-gold" />
-                  <span>Add Qualification</span>
-                </button>
-              </div>
-
-              {/* Qualification Blocks List */}
-              <div className="space-y-6">
-                {qualFields.map((qual, qualIdx) => (
-                  <QualificationItem
-                    key={qual.id}
-                    qualIndex={qualIdx}
-                    control={control}
-                    register={register}
-                    errors={errors}
-                    watch={watch}
-                    removeQual={removeQual}
-                    canRemove={qualFields.length > 1}
-                  />
-                ))}
-              </div>
-
-              {/* Dynamic TNEA Cutoff Score Banner (Calculated from HSC qualification if available) */}
-              {computedCutoff !== null && (
-                <div className="p-4 rounded-xl bg-tec-navy text-white flex items-center justify-between border border-tec-gold/50 shadow-md">
-                  <div className="flex items-center gap-3">
-                    <Calculator className="w-8 h-8 text-tec-gold shrink-0" />
-                    <div>
-                      <span className="text-[11px] text-slate-300 font-bold uppercase tracking-wider">
-                        TNEA Engineering Cutoff Calculation (HSC 12th)
-                      </span>
-                      <p className="text-xs text-slate-300">
-                        Formula: Maths% + (Physics% ÷ 2) + (Chemistry% ÷ 2)
-                      </p>
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <span className="text-2xl font-black text-tec-gold">{computedCutoff}</span>
-                    <span className="text-xs text-slate-300 block">/ 200.00</span>
-                  </div>
+              {/* Last Saved Info */}
+              {draftSavedAt && (
+                <div className="px-5 pb-4 pt-2 border-t border-slate-100 flex items-center gap-2 text-[11px] text-slate-500 font-medium">
+                  <BookmarkCheck className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                  <span>Draft saved at {draftSavedAt}</span>
                 </div>
               )}
+            </div>
+          </div>
 
-            </section>
-
-
-            {/* SECTION E: ENTRANCE/COUNSELLING DETAILS */}
-            <section id="section-e" className="bg-white rounded-2xl p-4 sm:p-6 lg:p-8 border border-slate-200 shadow-sm space-y-6 overflow-hidden">
-              <div className="flex items-center gap-3 pb-4 border-b border-slate-200">
-                <div className="w-10 h-10 rounded-lg bg-tec-navy text-white flex items-center justify-center font-bold">
-                  E
-                </div>
-                <div>
-                  <h2 className="text-lg font-extrabold text-slate-900">Section E: Counselling & Entrance Details</h2>
-                  <p className="text-xs text-slate-500">TNEA / TANCET / GATE details (if applicable)</p>
-                </div>
+          {/* Right Main Form Container – takes remaining width, page scrolls naturally */}
+          <div className="flex-1 min-w-0 bg-white rounded-2xl border border-slate-200 shadow-xl p-6 sm:p-8 space-y-6">
+            <div className="border-b border-slate-100 pb-4 flex items-center justify-between">
+              <div>
+                <span className="text-xs font-bold text-tec-navy uppercase tracking-widest">
+                  Step {currentModuleIndex + 1} of {modules.length}
+                </span>
+                <h2 className="text-2xl font-extrabold text-slate-900 mt-0.5">
+                  {currentModule?.module_name}
+                </h2>
               </div>
+              <span className="text-xs text-slate-400 font-medium hidden sm:inline">
+                All fields marked with <span className="text-rose-500 font-bold">*</span> are required
+              </span>
+            </div>
 
-              {/* Even 3-Column Grid Layout for Section E */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-5 items-start">
-                <Input
-                  label="College Counselling Code"
-                  value="1517 (Thirumalai Engineering College)"
-                  disabled
-                  helperText="Prefilled government counselling code"
-                />
+            <form onSubmit={handleSubmitForm} className="space-y-6">
 
-                <Input
-                  label="TNEA / Entrance Application No."
-                  placeholder="e.g. TNEA2026-98124"
-                  error={errors.tneaAppNo}
-                  {...register('tneaAppNo')}
-                />
+              {/* Fields Renderer */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-5">
+                {currentModuleFields.map((field) => {
+                  const value = formValues[field.field_key] ?? '';
+                  const fieldError = errors[field.field_key];
 
-                <Input
-                  label="Entrance Rank / Score (Optional)"
-                  placeholder="e.g. TNEA Rank or TANCET Score"
-                  error={errors.entranceRank}
-                  {...register('entranceRank')}
-                />
-              </div>
-            </section>
+                  // 1. Radio Input
+                  if (field.field_type === 'radio') {
+                    const options = field.choices || ['UG', 'PG'];
+                    return (
+                      <div key={field.id} className="md:col-span-2 space-y-2">
+                        <label className="block text-sm font-bold text-slate-800">
+                          {field.field_label} {field.required && <span className="text-rose-500">*</span>}
+                        </label>
+                        <div className="flex flex-wrap gap-4">
+                          {options.map((opt) => (
+                            <label
+                              key={opt}
+                              className={`flex items-center gap-2 px-4 py-2.5 rounded-lg border text-sm font-bold cursor-pointer transition ${
+                                value === opt
+                                  ? 'bg-tec-navy text-white border-tec-navy shadow-xs'
+                                  : 'bg-slate-50 text-slate-700 border-slate-200 hover:border-slate-300'
+                              }`}
+                            >
+                              <input
+                                type="radio"
+                                name={field.field_key}
+                                value={opt}
+                                checked={value === opt}
+                                onChange={(e) => handleInputChange(field.field_key, e.target.value)}
+                                className="hidden"
+                              />
+                              <span>{opt}</span>
+                            </label>
+                          ))}
+                        </div>
+                        {fieldError && <p className="text-xs text-rose-600 font-semibold">{fieldError}</p>}
+                      </div>
+                    );
+                  }
 
+                  // 2. Select Dropdown Input
+                  if (field.field_type === 'select') {
+                    let options = field.choices || [];
+                    if (field.field_key === 'department' && (!options || options.length === 0)) {
+                      const currentProgram = formValues.program || 'UG';
+                      options = departments
+                        .filter((d) => d.program_level === currentProgram || !d.program_level)
+                        .map((d) => d.department_name);
+                    }
 
-            {/* SECTION F: DOCUMENT UPLOAD */}
-            <section id="section-f" className="bg-white rounded-2xl p-4 sm:p-6 lg:p-8 border border-slate-200 shadow-sm space-y-6 overflow-hidden">
-              <div className="flex items-center gap-3 pb-4 border-b border-slate-200">
-                <div className="w-10 h-10 rounded-lg bg-tec-navy text-white flex items-center justify-center font-bold">
-                  F
-                </div>
-                <div>
-                  <h2 className="text-lg font-extrabold text-slate-900">Section F: Document Uploads</h2>
-                  <p className="text-xs text-slate-500">Upload scanned copies of required certificates (PDF / JPG under 2MB)</p>
-                </div>
-              </div>
+                    return (
+                      <div key={field.id} className="space-y-1.5">
+                        <label className="block text-sm font-bold text-slate-800">
+                          {field.field_label} {field.required && <span className="text-rose-500">*</span>}
+                        </label>
+                        <select
+                          value={value}
+                          onChange={(e) => handleInputChange(field.field_key, e.target.value)}
+                          className={`w-full px-3.5 py-2.5 rounded-lg border text-sm font-medium transition focus:outline-none focus:ring-2 focus:ring-tec-navy ${
+                            fieldError ? 'border-rose-500 bg-rose-50/20' : 'border-slate-300 bg-white'
+                          }`}
+                        >
+                          <option value="">Select {field.field_label}</option>
+                          {options.map((opt) => {
+                            const val = typeof opt === 'object' ? opt.value : opt;
+                            const lbl = typeof opt === 'object' ? opt.label : opt;
+                            return (
+                              <option key={val} value={val}>
+                                {lbl}
+                              </option>
+                            );
+                          })}
+                        </select>
+                        {fieldError && <p className="text-xs text-rose-600 font-semibold">{fieldError}</p>}
+                      </div>
+                    );
+                  }
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <Controller
-                  name="doc10th"
-                  control={control}
-                  render={({ field }) => (
-                    <FileUpload
-                      label="10th (SSLC) Marksheet"
-                      required
-                      value={field.value}
-                      onChange={field.onChange}
-                      error={errors.doc10th}
-                    />
-                  )}
-                />
+                  // 3. Textarea Input
+                  if (field.field_type === 'textarea') {
+                    return (
+                      <div key={field.id} className="md:col-span-2 space-y-1.5">
+                        <label className="block text-sm font-bold text-slate-800">
+                          {field.field_label} {field.required && <span className="text-rose-500">*</span>}
+                        </label>
+                        <textarea
+                          rows={3}
+                          value={value}
+                          placeholder={field.placeholder || `Enter ${field.field_label}`}
+                          onChange={(e) => handleInputChange(field.field_key, e.target.value)}
+                          className={`w-full px-3.5 py-2.5 rounded-lg border text-sm font-medium transition focus:outline-none focus:ring-2 focus:ring-tec-navy ${
+                            fieldError ? 'border-rose-500 bg-rose-50/20' : 'border-slate-300 bg-white'
+                          }`}
+                        />
+                        {fieldError && <p className="text-xs text-rose-600 font-semibold">{fieldError}</p>}
+                      </div>
+                    );
+                  }
 
-                <Controller
-                  name="doc12th"
-                  control={control}
-                  render={({ field }) => (
-                    <FileUpload
-                      label="12th (HSC) / Diploma Marksheet"
-                      required={degreeLevel === 'UG'}
-                      value={field.value}
-                      onChange={field.onChange}
-                      error={errors.doc12th}
-                    />
-                  )}
-                />
+                  // 4. File Upload Input
+                  if (field.field_type === 'file') {
+                    return (
+                      <div key={field.id} className="space-y-1.5">
+                        <label className="block text-sm font-bold text-slate-800">
+                          {field.field_label} {field.required && <span className="text-rose-500">*</span>}
+                        </label>
+                        <div className="border-2 border-dashed border-slate-300 rounded-xl p-4 text-center hover:border-tec-navy transition bg-slate-50">
+                          {value ? (
+                            <div className="flex items-center justify-between text-xs font-bold text-emerald-700 bg-emerald-50 p-2.5 rounded-lg border border-emerald-200">
+                              <span className="truncate max-w-[200px]">✓ {value}</span>
+                              <button
+                                type="button"
+                                onClick={() => handleInputChange(field.field_key, '')}
+                                className="text-rose-600 hover:underline ml-2"
+                              >
+                                Remove
+                              </button>
+                            </div>
+                          ) : (
+                            <label className="cursor-pointer flex flex-col items-center gap-1.5">
+                              <Upload className="w-6 h-6 text-tec-navy" />
+                              <span className="text-xs font-bold text-tec-navy">Click to Upload File</span>
+                              <span className="text-[10px] text-slate-400">PDF, JPG, PNG up to 5MB</span>
+                              <input
+                                type="file"
+                                accept="image/*,application/pdf"
+                                onChange={(e) => handleFileUpload(field.field_key, e.target.files[0])}
+                                className="hidden"
+                              />
+                            </label>
+                          )}
+                        </div>
+                        {fieldError && <p className="text-xs text-rose-600 font-semibold">{fieldError}</p>}
+                      </div>
+                    );
+                  }
 
-                {degreeLevel === 'PG' && (
-                  <Controller
-                    name="docUgDegree"
-                    control={control}
-                    render={({ field }) => (
-                      <FileUpload
-                        label="UG Degree Consolidated Marksheet / Provisional Cert"
-                        required
-                        value={field.value}
-                        onChange={field.onChange}
-                        error={errors.docUgDegree}
+                  // 5. Checkbox Input (Declaration)
+                  if (field.field_type === 'checkbox') {
+                    return (
+                      <div key={field.id} className="md:col-span-2 p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-2">
+                        <label className="flex items-start gap-3 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={Boolean(value)}
+                            onChange={(e) => handleInputChange(field.field_key, e.target.checked)}
+                            className="w-5 h-5 rounded border-slate-300 text-tec-navy focus:ring-tec-navy mt-0.5"
+                          />
+                          <span className="text-xs font-medium text-slate-700 leading-relaxed">
+                            {field.field_label} {field.required && <span className="text-rose-500 font-bold">*</span>}
+                          </span>
+                        </label>
+                        {fieldError && <p className="text-xs text-rose-600 font-semibold">{fieldError}</p>}
+                      </div>
+                    );
+                  }
+
+                  // 6. Dynamic Array Table Input (Qualifications, Performance, Certificates)
+                  if (field.field_type === 'array') {
+                    const columns = field.choices || [];
+                    const rows = formValues[field.field_key] || [];
+
+                    return (
+                      <div key={field.id} className="md:col-span-2 space-y-3">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <label className="block text-sm font-bold text-slate-900">
+                              {field.field_label} {field.required && <span className="text-rose-500">*</span>}
+                            </label>
+                            {field.help_text && (
+                              <p className="text-xs text-slate-500">{field.help_text}</p>
+                            )}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleAddArrayRow(field.field_key, columns)}
+                            className="px-3 py-1.5 rounded-lg bg-tec-navy text-white text-xs font-bold hover:bg-tec-navy-dark transition flex items-center gap-1 shadow-xs cursor-pointer"
+                          >
+                            <Plus className="w-4 h-4" />
+                            <span>Add Entry</span>
+                          </button>
+                        </div>
+
+                        {fieldError && <p className="text-xs text-rose-600 font-semibold">{fieldError}</p>}
+
+                        {rows.length === 0 ? (
+                          <div className="text-center py-8 bg-slate-50 rounded-xl border border-dashed border-slate-300 text-xs text-slate-500">
+                            No entries added yet. Click <strong>"Add Entry"</strong> above to populate details.
+                          </div>
+                        ) : (
+                          <div className="overflow-x-auto rounded-xl border border-slate-200">
+                            <table className="w-full text-left text-xs">
+                              <thead className="bg-slate-100 text-slate-700 font-bold uppercase text-[10px] tracking-wider border-b border-slate-200">
+                                <tr>
+                                  {columns.map((col) => (
+                                    <th key={col.key} className="p-3">
+                                      {col.label} {col.required && <span className="text-rose-500">*</span>}
+                                    </th>
+                                  ))}
+                                  <th className="p-3 text-right">Action</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-slate-200 bg-white">
+                                {rows.map((row, rIdx) => (
+                                  <tr key={rIdx} className="hover:bg-slate-50/50">
+                                    {columns.map((col) => {
+                                      const colVal = row[col.key] ?? '';
+
+                                      return (
+                                        <td key={col.key} className="p-2.5">
+                                          {col.type === 'select' ? (
+                                            <select
+                                              value={colVal}
+                                              onChange={(e) =>
+                                                handleArrayRowChange(field.field_key, rIdx, col.key, e.target.value, columns)
+                                              }
+                                              className="w-full px-2.5 py-1.5 rounded border border-slate-300 text-xs font-medium focus:outline-none focus:ring-1 focus:ring-tec-navy"
+                                            >
+                                              <option value="">Select</option>
+                                              {(col.options || []).map((opt) => (
+                                                <option key={opt} value={opt}>
+                                                  {opt}
+                                                </option>
+                                              ))}
+                                            </select>
+                                          ) : col.type === 'file' ? (
+                                            <div>
+                                              {colVal ? (
+                                                <span className="text-emerald-700 font-bold truncate max-w-[120px] block">
+                                                  ✓ {colVal}
+                                                </span>
+                                              ) : (
+                                                <input
+                                                  type="file"
+                                                  accept="image/*,application/pdf"
+                                                  onChange={(e) => {
+                                                    const file = e.target.files[0];
+                                                    if (file) {
+                                                      handleArrayRowChange(field.field_key, rIdx, col.key, file.name, columns);
+                                                    }
+                                                  }}
+                                                  className="text-[11px] text-slate-500 file:mr-2 file:py-1 file:px-2 file:rounded file:border-0 file:text-xs file:font-bold file:bg-tec-navy file:text-white"
+                                                />
+                                              )}
+                                            </div>
+                                          ) : (
+                                            <input
+                                              type={col.type === 'number' ? 'number' : 'text'}
+                                              readOnly={col.readonly}
+                                              value={colVal}
+                                              placeholder={col.label}
+                                              onChange={(e) =>
+                                                handleArrayRowChange(field.field_key, rIdx, col.key, e.target.value, columns)
+                                              }
+                                              className={`w-full px-2.5 py-1.5 rounded border text-xs font-medium focus:outline-none focus:ring-1 focus:ring-tec-navy ${
+                                                col.readonly ? 'bg-slate-100 text-slate-500 font-bold' : 'border-slate-300'
+                                              }`}
+                                            />
+                                          )}
+                                        </td>
+                                      );
+                                    })}
+                                    <td className="p-2.5 text-right">
+                                      <button
+                                        type="button"
+                                        onClick={() => handleRemoveArrayRow(field.field_key, rIdx)}
+                                        className="p-1 text-rose-600 hover:bg-rose-50 rounded transition"
+                                        title="Remove entry"
+                                      >
+                                        <Trash2 className="w-4 h-4" />
+                                      </button>
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  }
+
+                  // 7. Standard Input (Text, Email, Number, Date)
+                  const isNumber = field.field_type === 'number';
+                  const isDate = field.field_type === 'date';
+                  const isEmail = field.field_type === 'email';
+
+                  return (
+                    <div key={field.id} className="space-y-1.5">
+                      <label className="block text-sm font-bold text-slate-800">
+                        {field.field_label} {field.required && <span className="text-rose-500">*</span>}
+                      </label>
+                      <input
+                        type={isDate ? 'date' : isEmail ? 'email' : isNumber ? 'number' : 'text'}
+                        value={value}
+                        placeholder={field.placeholder || `Enter ${field.field_label}`}
+                        onChange={(e) => handleInputChange(field.field_key, e.target.value)}
+                        className={`w-full px-3.5 py-2.5 rounded-lg border text-sm font-medium transition focus:outline-none focus:ring-2 focus:ring-tec-navy ${
+                          fieldError ? 'border-rose-500 bg-rose-50/20' : 'border-slate-300 bg-white'
+                        }`}
                       />
-                    )}
-                  />
-                )}
-
-                <Controller
-                  name="docTransferCert"
-                  control={control}
-                  render={({ field }) => (
-                    <FileUpload
-                      label="Transfer Certificate (TC)"
-                      required
-                      value={field.value}
-                      onChange={field.onChange}
-                      error={errors.docTransferCert}
-                    />
-                  )}
-                />
-
-                <Controller
-                  name="docCommunityCert"
-                  control={control}
-                  render={({ field }) => (
-                    <FileUpload
-                      label="Community Certificate"
-                      value={field.value}
-                      onChange={field.onChange}
-                      error={errors.docCommunityCert}
-                    />
-                  )}
-                />
-
-                <Controller
-                  name="docAadhar"
-                  control={control}
-                  render={({ field }) => (
-                    <FileUpload
-                      label="Aadhar Card Copy"
-                      required
-                      value={field.value}
-                      onChange={field.onChange}
-                      error={errors.docAadhar}
-                    />
-                  )}
-                />
-
-                <Controller
-                  name="docPhoto"
-                  control={control}
-                  render={({ field }) => (
-                    <FileUpload
-                      label="Passport Size Photo"
-                      accept=".jpg,.jpeg,.png"
-                      required
-                      value={field.value}
-                      onChange={field.onChange}
-                      error={errors.docPhoto}
-                    />
-                  )}
-                />
-              </div>
-            </section>
-
-
-            {/* SECTION G: DECLARATION & SUBMISSION */}
-            <section id="section-g" className="bg-white rounded-2xl p-4 sm:p-6 lg:p-8 border border-slate-200 shadow-sm space-y-6 overflow-hidden">
-              <div className="flex items-center gap-3 pb-4 border-b border-slate-200">
-                <div className="w-10 h-10 rounded-lg bg-tec-navy text-white flex items-center justify-center font-bold">
-                  G
-                </div>
-                <div>
-                  <h2 className="text-lg font-extrabold text-slate-900">Section G: Declaration & Final Submission</h2>
-                  <p className="text-xs text-slate-500">Confirm accuracy of information and submit application</p>
-                </div>
+                      {fieldError && <p className="text-xs text-rose-600 font-semibold">{fieldError}</p>}
+                    </div>
+                  );
+                })}
               </div>
 
-              <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
-                <label className="flex items-start gap-3 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    className="w-5 h-5 rounded text-tec-navy focus:ring-tec-navy mt-0.5"
-                    {...register('declarationAgreed')}
-                  />
-                  <span className="text-xs text-slate-700 leading-relaxed font-medium">
-                    I hereby declare that all the information furnished above is true, complete, and correct to the best of my knowledge and belief. I understand that if any information is found false or inaccurate, my application to Thirumalai Engineering College (Code: 1517) shall be subject to immediate cancellation.
-                  </span>
-                </label>
-                {errors.declarationAgreed && (
-                  <p className="mt-2 text-xs text-rose-600 font-bold">⚠️ {errors.declarationAgreed.message}</p>
-                )}
-              </div>
-
-              <div className="pt-4 flex flex-col sm:flex-row items-center justify-between gap-4">
-                <Button
+              {/* Stepper Action Buttons */}
+              <div className="pt-6 border-t border-slate-100 flex items-center justify-between">
+                <button
                   type="button"
-                  variant="outline"
-                  onClick={handleManualSaveDraft}
-                  className="w-full sm:w-auto font-bold"
+                  disabled={currentModuleIndex === 0}
+                  onClick={handleBack}
+                  className={`px-5 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 transition ${
+                    currentModuleIndex === 0
+                      ? 'opacity-40 cursor-not-allowed bg-slate-100 text-slate-400'
+                      : 'bg-slate-200 text-slate-800 hover:bg-slate-300 cursor-pointer'
+                  }`}
                 >
-                  <Save className="w-4 h-4" />
-                  <span>Save Progress Draft</span>
-                </Button>
+                  <ArrowLeft className="w-4 h-4" />
+                  <span>Back</span>
+                </button>
 
-                <Button
-                  type="submit"
-                  variant="accent"
-                  isLoading={isSubmitting}
-                  className="w-full sm:w-auto px-8 py-3.5 text-base font-extrabold shadow-lg"
-                >
-                  <span>Submit Application to TEC</span>
-                  <ArrowRight className="w-5 h-5" />
-                </Button>
+                {currentModuleIndex < modules.length - 1 ? (
+                  <button
+                    type="button"
+                    onClick={handleNext}
+                    className="px-6 py-2.5 rounded-xl bg-tec-navy text-white font-extrabold text-sm hover:bg-tec-navy-dark transition flex items-center gap-2 shadow-md cursor-pointer"
+                  >
+                    <span>Next Step</span>
+                    <ArrowRight className="w-4 h-4 text-tec-gold" />
+                  </button>
+                ) : (
+                  <button
+                    type="submit"
+                    disabled={submitting}
+                    className="px-8 py-3 rounded-xl bg-tec-gold hover:bg-tec-gold-hover text-slate-950 font-black text-base shadow-xl transition flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                  >
+                    {submitting ? (
+                      <span>Submitting Application...</span>
+                    ) : (
+                      <>
+                        <span>Submit Application</span>
+                        <CheckCircle2 className="w-5 h-5" />
+                      </>
+                    )}
+                  </button>
+                )}
               </div>
-            </section>
 
-          </form>
+            </form>
+          </div>
+
         </div>
 
       </div>
     </div>
   );
 }
+
+export default Apply;

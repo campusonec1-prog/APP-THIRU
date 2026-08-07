@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext';
+import { useAuth } from '../Context/AuthContext';
 import { initiatePayment } from '../services/api';
-import { Button } from '../components/common/Button';
+import { Button } from '../Components/common/Button';
 import { ShieldCheck, CreditCard, QrCode, Building, CheckCircle2, ArrowRight } from 'lucide-react';
 import emblemPng from '../assets/emblem.png';
 
@@ -156,7 +156,7 @@ export function Payment() {
             </div>
             <Button
               variant="primary"
-              onClick={() => navigate('/status')}
+              onClick={() => navigate('/profile')}
               className="w-full py-3 font-bold"
             >
               View Updated Application PDF Status

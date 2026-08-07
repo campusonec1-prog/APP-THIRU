@@ -1,17 +1,29 @@
-import React, { useState } from 'react';
-import { Link, useNavigate, useLocation } from 'react-router-dom';
-import { useAuth } from '../../context/AuthContext';
-import { COLLEGE_INFO } from '../../utils/constants';
-import { Menu, X, User, LogOut, FileText, Home as HomeIcon, Award, ShieldCheck } from 'lucide-react';
-import logoWebp from '../../assets/logo.webp';
+import React, { useState, useRef, useEffect } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+import { useAuth } from '../../Context/AuthContext';
+import { Menu, X, LogOut, FileText, ChevronDown } from 'lucide-react';
+import { COLLEGE_CONFIG } from '../../Config/collegeConfig';
 
 export function Header() {
   const { user, logout } = useAuth();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [profileDropdownOpen, setProfileDropdownOpen] = useState(false);
+  const dropdownRef = useRef(null);
   const navigate = useNavigate();
-  const location = useLocation();
 
-  const isActive = (path) => location.pathname === path;
+  const userInitial = user?.fullName?.trim()?.[0]?.toUpperCase() || user?.email?.trim()?.[0]?.toUpperCase() || 'U';
+  const userDisplayName = user?.fullName || user?.email || 'User';
+
+  // Close dropdown on click outside
+  useEffect(() => {
+    function handleClickOutside(event) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+        setProfileDropdownOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   return (
     <header className="sticky top-0 z-40 bg-white border-b border-slate-200 shadow-xs">
@@ -21,71 +33,66 @@ export function Header() {
           {/* Logo & College Brand */}
           <Link to="/" className="flex items-center gap-3 group">
             <img
-              src={logoWebp}
-              alt={COLLEGE_INFO.name}
+              src={COLLEGE_CONFIG.images.logo}
+              alt={COLLEGE_CONFIG.name}
               onError={(e) => { e.target.src = '/logo.png'; }}
               className="h-12 sm:h-14 w-auto object-contain transition duration-200 group-hover:scale-105"
             />
-            {/*<div className="hidden xl:block">
-              <h1 className="text-lg font-extrabold text-tec-navy leading-tight tracking-tight">
-                THIRUMALAI ENGINEERING COLLEGE
-              </h1>
-              <p className="text-xs text-slate-600 font-medium italic">
-                "{COLLEGE_INFO.tagline}"
-              </p>
-            </div>*/}
           </Link>
 
-          {/* Desktop Navigation Links */}
-          <nav className="hidden md:flex items-center gap-1 lg:gap-2">
-            <Link
-              to="/"
-              className={`px-3.5 py-2 rounded-lg text-sm font-semibold transition ${isActive('/')
-                ? 'bg-slate-100 text-tec-navy font-bold'
-                : 'text-slate-700 hover:text-tec-navy hover:bg-slate-50'
-                }`}
-            >
-              Home
-            </Link>
-            {/*<Link
-              to="/apply"
-              className={`px-3.5 py-2 rounded-lg text-sm font-semibold transition flex items-center gap-1.5 ${
-                isActive('/apply')
-                  ? 'bg-tec-navy text-white shadow-xs'
-                  : 'text-slate-700 hover:text-tec-navy hover:bg-slate-50'
-              }`}
-            >
-              <FileText className="w-4 h-4" />
-              Apply Online
-            </Link>*/}
-            <Link
-              to="/status"
-              className={`px-3.5 py-2 rounded-lg text-sm font-semibold transition ${isActive('/status')
-                ? 'bg-slate-100 text-tec-navy font-bold'
-                : 'text-slate-700 hover:text-tec-navy hover:bg-slate-50'
-                }`}
-            >
-              Application Status
-            </Link>
-          </nav>
-
-          {/* User Auth Buttons */}
+          {/* User Auth & Profile Dropdown */}
           <div className="hidden md:flex items-center gap-3">
             {user ? (
-              <div className="flex items-center gap-3 bg-slate-50 border border-slate-200 pl-3 pr-2 py-1.5 rounded-full">
-                <div className="w-7 h-7 rounded-full bg-tec-navy text-white flex items-center justify-center font-bold text-xs">
-                  {user.fullName ? user.fullName[0].toUpperCase() : 'U'}
-                </div>
-                <span className="text-xs font-semibold text-slate-800 truncate max-w-[120px]">
-                  {user.fullName}
-                </span>
+              <div className="relative" ref={dropdownRef}>
                 <button
-                  onClick={logout}
-                  className="p-1 rounded-full text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition"
-                  title="Log out"
+                  type="button"
+                  onClick={() => setProfileDropdownOpen(!profileDropdownOpen)}
+                  className="flex items-center gap-2.5 bg-slate-50 hover:bg-slate-100 border border-slate-200 pl-3 pr-3 py-1.5 rounded-full transition cursor-pointer shadow-xs"
                 >
-                  <LogOut className="w-4 h-4" />
+                  <div className="w-8 h-8 rounded-full bg-tec-navy text-white flex items-center justify-center font-bold text-xs shadow-inner">
+                    {userInitial}
+                  </div>
+                  <span className="text-xs font-bold text-slate-800 truncate max-w-[120px]">
+                    {userDisplayName}
+                  </span>
+                  <ChevronDown className={`w-3.5 h-3.5 text-slate-500 transition-transform duration-200 ${profileDropdownOpen ? 'rotate-180' : ''}`} />
                 </button>
+
+                {/* Dropdown Menu */}
+                {profileDropdownOpen && (
+                  <div className="absolute right-0 mt-2 w-56 bg-white rounded-xl shadow-2xl border border-slate-200 py-2 z-50 animate-in fade-in slide-in-from-top-2 duration-150">
+                    <div className="px-4 py-2.5 border-b border-slate-100">
+                      <p className="text-xs text-slate-400 font-medium">Signed in as</p>
+                      <p className="text-xs font-bold text-slate-900 truncate mt-0.5">{userDisplayName}</p>
+                    </div>
+
+                    <div className="py-1">
+                      <button
+                        onClick={() => {
+                          setProfileDropdownOpen(false);
+                          navigate('/profile');
+                        }}
+                        className="w-full flex items-center gap-2.5 px-4 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50 hover:text-tec-navy transition cursor-pointer"
+                      >
+                        <FileText className="w-4 h-4 text-tec-navy" />
+                        <span>My Profile</span>
+                      </button>
+                    </div>
+
+                    <div className="pt-1 border-t border-slate-100">
+                      <button
+                        onClick={() => {
+                          setProfileDropdownOpen(false);
+                          logout();
+                        }}
+                        className="w-full flex items-center gap-2.5 px-4 py-2 text-xs font-bold text-rose-600 hover:bg-rose-50 transition cursor-pointer"
+                      >
+                        <LogOut className="w-4 h-4" />
+                        <span>Logout</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             ) : (
               <div className="flex items-center gap-2">
@@ -120,40 +127,42 @@ export function Header() {
       {/* Mobile Drawer */}
       {mobileMenuOpen && (
         <div className="md:hidden border-t border-slate-200 bg-white px-4 pt-2 pb-6 space-y-3 shadow-lg w-full max-w-full overflow-hidden">
-          <Link
-            to="/"
-            onClick={() => setMobileMenuOpen(false)}
-            className="flex items-center gap-2 px-3 py-2.5 rounded-lg text-base font-semibold text-slate-800 hover:bg-slate-50"
-          >
-            <HomeIcon className="w-5 h-5 text-tec-navy" />
-            Home
-          </Link>
-          <Link
-            to="/apply"
-            onClick={() => setMobileMenuOpen(false)}
-            className="flex items-center gap-2 px-3 py-2.5 rounded-lg text-base font-semibold bg-tec-navy text-white"
+          <button
+            onClick={() => {
+              setMobileMenuOpen(false);
+              if (user) {
+                navigate('/application-form');
+              } else {
+                navigate('/login');
+              }
+            }}
+            className="w-full flex items-center gap-2 px-3 py-2.5 rounded-lg text-base font-semibold bg-tec-navy text-white text-left cursor-pointer"
           >
             <FileText className="w-5 h-5" />
             Apply Online Form
-          </Link>
-          <Link
-            to="/status"
-            onClick={() => setMobileMenuOpen(false)}
-            className="flex items-center gap-2 px-3 py-2.5 rounded-lg text-base font-semibold text-slate-800 hover:bg-slate-50"
-          >
-            <ShieldCheck className="w-5 h-5 text-tec-navy" />
-            Application Status
-          </Link>
+          </button>
+
 
           <div className="pt-3 border-t border-slate-100 flex flex-col gap-2">
             {user ? (
-              <div className="flex items-center justify-between px-3 py-2 bg-slate-50 rounded-lg">
-                <span className="text-sm font-semibold text-slate-800">{user.fullName}</span>
+              <div className="space-y-2 pt-1">
+                <div className="px-3 py-2 bg-slate-100 rounded-lg">
+                  <span className="text-xs text-slate-400 block font-medium">Logged in as</span>
+                  <span className="text-sm font-bold text-slate-800">{userDisplayName}</span>
+                </div>
+                <button
+                  onClick={() => { setMobileMenuOpen(false); navigate('/profile'); }}
+                  className="w-full flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm font-bold text-slate-700 hover:bg-slate-100 text-left"
+                >
+                  <FileText className="w-4 h-4 text-tec-navy" />
+                  My Profile
+                </button>
                 <button
                   onClick={() => { logout(); setMobileMenuOpen(false); }}
-                  className="text-xs font-semibold text-rose-600 hover:underline"
+                  className="w-full flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm font-bold text-rose-600 hover:bg-rose-50 text-left"
                 >
-                  Log out
+                  <LogOut className="w-4 h-4" />
+                  Logout
                 </button>
               </div>
             ) : (

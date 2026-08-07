@@ -2,22 +2,28 @@ import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { registerSchema } from '../utils/validation';
-import { registerUser, sendOtp, verifyOtp } from '../services/api';
-import { useAuth } from '../context/AuthContext';
-import { Input } from '../components/common/Input';
-import { Button } from '../components/common/Button';
-import { ShieldCheck, User, Phone, Mail, Lock, KeyRound, CheckCircle2, ArrowRight } from 'lucide-react';
-import emblemPng from '../assets/emblem.png';
+import { z } from 'zod';
+import { registerUser } from '../services/api';
+import { useAuth } from '../Context/AuthContext';
+import { Input } from '../Components/common/Input';
+import { Button } from '../Components/common/Button';
+import { User, Phone, Mail, Lock } from 'lucide-react';
+import { COLLEGE_CONFIG } from '../Config/collegeConfig';
+
+const registerSchema = z.object({
+  fullName: z.string().min(3, 'Full name must be at least 3 characters'),
+  mobile: z.string().regex(/^[6-9]\d{9}$/, 'Enter a valid 10-digit Indian mobile number'),
+  email: z.string().email('Enter a valid email address'),
+  password: z.string().min(6, 'Password must be at least 6 characters'),
+  confirmPassword: z.string()
+}).refine(data => data.password === data.confirmPassword, {
+  message: "Passwords don't match",
+  path: ['confirmPassword']
+});
 
 export function Register() {
-  const [step, setStep] = useState('FORM'); // 'FORM' | 'OTP'
-  const [otpVal, setOtpVal] = useState('123456');
-  const [otpError, setOtpError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [registeredData, setRegisteredData] = useState(null);
-
-  const { showToast, setUser } = useAuth();
+  const { showToast, setUser, login } = useAuth();
   const navigate = useNavigate();
 
   const {
@@ -38,64 +44,50 @@ export function Register() {
   const onRegisterSubmit = async (data) => {
     setIsSubmitting(true);
     try {
-      const res = await registerUser(data);
-      await sendOtp(data.mobile);
-      setRegisteredData(res.user || data);
-      setStep('OTP');
-      showToast('Registration details saved! Please verify OTP.', 'info');
+      await registerUser({
+        name: data.fullName,
+        email: data.email,
+        phone_number: data.mobile,
+        password: data.password,
+      });
+      // Auto login to retrieve credentials token
+      await login({
+        identifier: data.email,
+        password: data.password,
+      });
+      showToast('Account created successfully!', 'success');
+      navigate('/');
     } catch (err) {
-      showToast(err.message || 'Registration failed', 'error');
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  const handleOtpVerify = async (e) => {
-    e.preventDefault();
-    setOtpError('');
-    if (!otpVal || otpVal.length !== 6) {
-      setOtpError('Please enter a 6-digit OTP code.');
-      return;
-    }
-
-    setIsSubmitting(true);
-    try {
-      await verifyOtp(registeredData?.mobile || '9876543210', otpVal);
-      setUser(registeredData);
-      showToast('Account created & mobile verified successfully!', 'success');
-      navigate('/apply');
-    } catch (err) {
-      setOtpError(err.message || 'Invalid OTP code');
+      const errMsg = err.response?.data?.detail || err.response?.data?.message || err.message || 'Registration failed';
+      showToast(typeof errMsg === 'object' ? JSON.stringify(errMsg) : errMsg, 'error');
     } finally {
       setIsSubmitting(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-slate-100 flex flex-col justify-center py-12 px-4 sm:px-6 lg:px-8">
-      <div className="sm:mx-auto sm:w-full sm:max-w-md text-center">
+    <div className="min-h-screen bg-slate-100 flex flex-col justify-center py-4 sm:py-6 px-4 sm:px-6 lg:px-8">
+      <div className="sm:mx-auto sm:w-full md:max-w-2xl lg:max-w-3xl text-center">
         <img
-          src={emblemPng}
-          alt="TEC Logo"
-          className="mx-auto h-16 w-auto object-contain"
+          src={COLLEGE_CONFIG.images.emblem}
+          alt={`${COLLEGE_CONFIG.shortName} Logo`}
+          className="mx-auto h-12 sm:h-14 w-auto object-contain"
         />
-        <h2 className="mt-4 text-2xl font-extrabold text-tec-navy">
+        <h2 className="mt-2 text-2xl font-extrabold text-tec-navy">
           Create Applicant Account
         </h2>
         <p className="mt-1 text-xs text-slate-600 font-medium">
-          Thirumalai Engineering College Online Application Portal 2026-27
+          {COLLEGE_CONFIG.portalSubheading}
         </p>
       </div>
 
-      <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
-        <div className="bg-white py-8 px-6 shadow-xl rounded-2xl border border-slate-200 sm:px-10">
-          
-          {step === 'FORM' ? (
-            <form onSubmit={handleSubmit(onRegisterSubmit)} className="space-y-4">
-              
+      <div className="mt-4 sm:mx-auto sm:w-full md:max-w-2xl lg:max-w-3xl">
+        <div className="bg-white py-5 sm:py-6 px-6 shadow-xl rounded-2xl border border-slate-200 sm:px-10">
+          <form onSubmit={handleSubmit(onRegisterSubmit)} className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <Input
-                label="Full Name (as per 10th Marksheet)"
-                placeholder="e.g. Karthik Raja S"
+                label="Full Name"
+                placeholder="e.g. John Doe"
                 icon={User}
                 required
                 error={errors.fullName}
@@ -108,20 +100,21 @@ export function Register() {
                 placeholder="10-digit mobile number"
                 icon={Phone}
                 required
-                helperText="OTP verification code will be sent to this number"
                 error={errors.mobile}
                 {...register('mobile')}
               />
 
-              <Input
-                label="Email Address"
-                type="email"
-                placeholder="name@example.com"
-                icon={Mail}
-                required
-                error={errors.email}
-                {...register('email')}
-              />
+              <div className="md:col-span-2">
+                <Input
+                  label="Email Address"
+                  type="email"
+                  placeholder="name@example.com"
+                  icon={Mail}
+                  required
+                  error={errors.email}
+                  {...register('email')}
+                />
+              </div>
 
               <Input
                 label="Create Password"
@@ -142,79 +135,29 @@ export function Register() {
                 error={errors.confirmPassword}
                 {...register('confirmPassword')}
               />
+            </div>
 
-              <div className="pt-2">
-                <Button
-                  type="submit"
-                  variant="accent"
-                  isLoading={isSubmitting}
-                  className="w-full text-base font-extrabold py-3 shadow-md"
-                >
-                  Register & Verify OTP
-                </Button>
-              </div>
-
-              <div className="mt-4 text-center text-xs text-slate-600">
-                Already registered?{' '}
-                <Link to="/login" className="font-bold text-tec-navy hover:underline">
-                  Log in here
-                </Link>
-              </div>
-
-            </form>
-          ) : (
-            <form onSubmit={handleOtpVerify} className="space-y-5 text-center">
-              <div className="w-12 h-12 bg-amber-100 text-amber-800 rounded-full flex items-center justify-center mx-auto">
-                <KeyRound className="w-6 h-6" />
-              </div>
-
-              <div>
-                <h3 className="text-lg font-bold text-slate-900">Verify Mobile OTP</h3>
-                <p className="text-xs text-slate-600 mt-1">
-                  Enter the 6-digit OTP code sent to{' '}
-                  <span className="font-bold text-slate-800">+91 {registeredData?.mobile}</span>
-                </p>
-              </div>
-
-              <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-800 font-semibold">
-                💡 Demo Mode Hint: Use OTP <span className="underline font-extrabold">123456</span> to proceed.
-              </div>
-
-              <div>
-                <input
-                  type="text"
-                  maxLength={6}
-                  value={otpVal}
-                  onChange={(e) => setOtpVal(e.target.value)}
-                  className="w-full text-center tracking-[0.5em] text-2xl font-mono font-bold py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-tec-navy focus:outline-none"
-                  placeholder="123456"
-                />
-                {otpError && (
-                  <p className="mt-1.5 text-xs text-rose-600 font-medium">⚠️ {otpError}</p>
-                )}
-              </div>
-
+            <div className="pt-2">
               <Button
                 type="submit"
-                variant="primary"
+                variant="accent"
                 isLoading={isSubmitting}
-                className="w-full py-3 font-bold"
+                className="w-full text-base font-extrabold py-3 shadow-md"
               >
-                Verify & Continue to Application
+                Create Account
               </Button>
+            </div>
 
-              <button
-                type="button"
-                onClick={() => setStep('FORM')}
-                className="text-xs text-slate-500 hover:text-slate-800 underline"
-              >
-                ← Back to registration form
-              </button>
-            </form>
-          )}
-
+            <div className="mt-4 text-center text-xs text-slate-600">
+              Already registered?{' '}
+              <Link to="/login" className="font-bold text-tec-navy hover:underline">
+                Log in here
+              </Link>
+            </div>
+          </form>
         </div>
       </div>
     </div>
   );
 }
+
