@@ -237,10 +237,11 @@ export function Apply() {
     if (!file) return;
     try {
       showToast(`Uploading ${file.name}...`, 'info');
-      const res = await uploadDocument(file, key).catch(() => ({ file_url: file.name }));
+      const res = await uploadDocument(file, key);
+      const fileUrl = res.data && res.data[0] ? res.data[0].file_url : file.name;
       setFormValues((prev) => ({
         ...prev,
-        [key]: res.file_url || file.name,
+        [key]: fileUrl,
       }));
       showToast(`Uploaded ${file.name} successfully`, 'success');
     } catch (err) {
@@ -255,9 +256,11 @@ export function Apply() {
       const val = formValues[field.field_key];
 
       if (field.required) {
-        if (field.field_type === 'array') {
+        if (field.field_type === 'array' || (field.field_key === 'department' && Array.isArray(val))) {
           if (!val || val.length === 0) {
-            newErrors[field.field_key] = `Add at least one entry for ${field.field_label}`;
+            newErrors[field.field_key] = field.field_key === 'department'
+              ? `${field.field_label} is required`
+              : `Add at least one entry for ${field.field_label}`;
           }
         } else if (field.field_type === 'checkbox') {
           if (!val) {
@@ -312,9 +315,35 @@ export function Apply() {
       return;
     }
 
+    // Structure flat formValues into nested form_data expected by the backend
+    const nestedFormData = {};
+    modules.forEach((mod) => {
+      nestedFormData[mod.module_key] = {};
+      const modFields = fields.filter((f) => f.form_module_id === mod.id);
+      modFields.forEach((field) => {
+        if (formValues[field.field_key] !== undefined) {
+          nestedFormData[mod.module_key][field.field_key] = formValues[field.field_key];
+        }
+      });
+    });
+
+    // Derive program_id based on selected department name
+    const selectedDeptName = Array.isArray(formValues.department)
+      ? formValues.department[0]
+      : formValues.department;
+    const deptObj = departments.find(
+      (d) => d.department_name && d.department_name.trim().toLowerCase() === String(selectedDeptName || '').trim().toLowerCase()
+    );
+    const programId = deptObj ? deptObj.program_id : null;
+
+    const payload = {
+      program_id: programId,
+      form_data: nestedFormData
+    };
+
     try {
       setSubmitting(true);
-      await submitApplication(formValues);
+      await submitApplication(payload);
       localStorage.removeItem('tec_application_draft');
       showToast('Application submitted successfully!', 'success');
       navigate('/payment');
@@ -325,6 +354,7 @@ export function Apply() {
       setSubmitting(false);
     }
   };
+
 
   // Early Returns AFTER all Hook declarations (Rules of Hooks)
   if (!user) {
@@ -532,6 +562,87 @@ export function Apply() {
                       options = departments
                         .filter((d) => d.program_level === currentProgram || !d.program_level)
                         .map((d) => d.department_name);
+
+                      const deptArray = Array.isArray(value) ? value : (value ? [value] : []);
+
+                      const handleDeptChoiceChange = (choiceIndex, val) => {
+                        const nextDeptArray = [...deptArray];
+                        nextDeptArray[choiceIndex] = val;
+                        // Filter out empty trailing elements to keep array clean
+                        const cleaned = [];
+                        for (let i = 0; i < 3; i++) {
+                          const v = nextDeptArray[i];
+                          if (v !== undefined && v !== "") {
+                            cleaned.push(v);
+                          }
+                        }
+                        handleInputChange('department', cleaned);
+                      };
+
+                      return (
+                        <div key={field.id} className="md:col-span-2 space-y-4">
+                          <label className="block text-sm font-bold text-slate-800">
+                            Course / Department Preference (Select up to 3 choices) {field.required && <span className="text-rose-500">*</span>}
+                          </label>
+                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                            {/* Choice 1 */}
+                            <div className="space-y-1.5">
+                              <span className="text-xs font-semibold text-slate-500">Choice 1 <span className="text-rose-500">*</span></span>
+                              <select
+                                value={deptArray[0] || ""}
+                                onChange={(e) => handleDeptChoiceChange(0, e.target.value)}
+                                className={`w-full px-3.5 py-2.5 rounded-lg border text-sm font-medium transition focus:outline-none focus:ring-2 focus:ring-tec-navy ${
+                                  fieldError ? 'border-rose-500 bg-rose-50/20' : 'border-slate-300 bg-white'
+                                }`}
+                              >
+                                <option value="">Select Choice 1</option>
+                                {options.map((opt) => (
+                                  <option key={opt} value={opt} disabled={deptArray.slice(1).includes(opt)}>
+                                    {opt}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+
+                            {/* Choice 2 */}
+                            <div className="space-y-1.5">
+                              <span className="text-xs font-semibold text-slate-500">Choice 2 (Optional)</span>
+                              <select
+                                value={deptArray[1] || ""}
+                                disabled={!deptArray[0]}
+                                onChange={(e) => handleDeptChoiceChange(1, e.target.value)}
+                                className="w-full px-3.5 py-2.5 rounded-lg border border-slate-300 bg-white text-sm font-medium transition focus:outline-none focus:ring-2 focus:ring-tec-navy"
+                              >
+                                <option value="">Select Choice 2</option>
+                                {options.map((opt) => (
+                                  <option key={opt} value={opt} disabled={deptArray[0] === opt || deptArray[2] === opt}>
+                                    {opt}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+
+                            {/* Choice 3 */}
+                            <div className="space-y-1.5">
+                              <span className="text-xs font-semibold text-slate-500">Choice 3 (Optional)</span>
+                              <select
+                                value={deptArray[2] || ""}
+                                disabled={!deptArray[1]}
+                                onChange={(e) => handleDeptChoiceChange(2, e.target.value)}
+                                className="w-full px-3.5 py-2.5 rounded-lg border border-slate-300 bg-white text-sm font-medium transition focus:outline-none focus:ring-2 focus:ring-tec-navy"
+                              >
+                                <option value="">Select Choice 3</option>
+                                {options.map((opt) => (
+                                  <option key={opt} value={opt} disabled={deptArray[0] === opt || deptArray[1] === opt}>
+                                    {opt}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                          </div>
+                          {fieldError && <p className="text-xs text-rose-600 font-semibold">{fieldError}</p>}
+                        </div>
+                      );
                     }
 
                     return (
@@ -712,17 +823,34 @@ export function Apply() {
                                           ) : col.type === 'file' ? (
                                             <div>
                                               {colVal ? (
-                                                <span className="text-emerald-700 font-bold truncate max-w-[120px] block">
-                                                  ✓ {colVal}
-                                                </span>
+                                                <div className="flex items-center gap-1">
+                                                  <span className="text-emerald-700 font-bold truncate max-w-[120px] block" title={colVal}>
+                                                    ✓ {colVal.split('/').pop()}
+                                                  </span>
+                                                  <button
+                                                    type="button"
+                                                    onClick={() => handleArrayRowChange(field.field_key, rIdx, col.key, '', columns)}
+                                                    className="text-rose-600 hover:underline text-[10px]"
+                                                  >
+                                                    Remove
+                                                  </button>
+                                                </div>
                                               ) : (
                                                 <input
                                                   type="file"
                                                   accept="image/*,application/pdf"
-                                                  onChange={(e) => {
+                                                  onChange={async (e) => {
                                                     const file = e.target.files[0];
                                                     if (file) {
-                                                      handleArrayRowChange(field.field_key, rIdx, col.key, file.name, columns);
+                                                      try {
+                                                        showToast(`Uploading ${file.name}...`, 'info');
+                                                        const res = await uploadDocument(file, col.key);
+                                                        const fileUrl = res.data && res.data[0] ? res.data[0].file_url : file.name;
+                                                        handleArrayRowChange(field.field_key, rIdx, col.key, fileUrl, columns);
+                                                        showToast(`Uploaded ${file.name} successfully`, 'success');
+                                                      } catch (err) {
+                                                        showToast(`Failed to upload ${file.name}`, 'error');
+                                                      }
                                                     }
                                                   }}
                                                   className="text-[11px] text-slate-500 file:mr-2 file:py-1 file:px-2 file:rounded file:border-0 file:text-xs file:font-bold file:bg-tec-navy file:text-white"
