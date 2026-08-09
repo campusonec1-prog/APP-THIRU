@@ -4,45 +4,50 @@ import {
   getFormModulesList,
   getFormFieldsList,
   getDepartmentsList,
-  submitApplication,
-  uploadDocument
-} from '../services/api';
-import { useAuth } from '../Context/AuthContext';
+  getProgramsList,
+  createApplication,
+  uploadDocuments
+} from '../Api';
+import { useAuth } from '../context/AuthContext';
 import { COLLEGE_CONFIG } from '../Config/collegeConfig';
 import { realtimeManager } from '../services/websocket';
+import { DynamicFormModule } from '../components/application/DynamicFormModule';
+import { ApplicationConfirmationModal } from '../components/application/ApplicationConfirmationModal';
 import {
-  FileText, ArrowRight, ArrowLeft, CheckCircle2,
-  Plus, Trash2, Upload, ShieldCheck, Save, BookmarkCheck, RotateCcw
+  FileText, ArrowRight, ArrowLeft, ShieldCheck,
+  Save, RotateCcw, CheckCircle2, Layers, BookOpen, AlertCircle
 } from 'lucide-react';
 
 export function Apply() {
-  const { user, showToast, academicYear } = useAuth();
+  const { user, showToast, academicYear, setApplication } = useAuth();
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
 
-  // URL query pre-selections (e.g. /apply?degree=UG&dept=...)
+  // Selected Program ID from URL or Selection Step
+  const urlProgramId = searchParams.get('program_id');
   const initialDegree = searchParams.get('degree') || 'UG';
   const initialDept = searchParams.get('dept') || '';
 
-  // API State
+  // API Metadata State
   const [modules, setModules] = useState([]);
   const [fields, setFields] = useState([]);
   const [departments, setDepartments] = useState([]);
+  const [programs, setPrograms] = useState([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [uploadProgressMap, setUploadProgressMap] = useState({});
+
+  // Selected Program & Department State
+  const [selectedProgramId, setSelectedProgramId] = useState(urlProgramId ? Number(urlProgramId) : null);
+  const [selectedDegree, setSelectedDegree] = useState(initialDegree);
+  const [selectedDepartmentName, setSelectedDepartmentName] = useState(initialDept);
 
   // Form Navigation & Values State
   const [currentModuleIndex, setCurrentModuleIndex] = useState(0);
-  const [formValues, setFormValues] = useState({
-    program: initialDegree,
-    department: initialDept,
-    qualifications: [],
-    academic_performance: [],
-    certificates: [],
-    declaration: false,
-  });
+  const [formValues, setFormValues] = useState({});
   const [errors, setErrors] = useState({});
   const [draftSavedAt, setDraftSavedAt] = useState(null);
+  const [submittedApplication, setSubmittedApplication] = useState(null);
 
   // Load draft from localStorage on mount
   useEffect(() => {
@@ -51,34 +56,39 @@ export function Apply() {
       try {
         const parsed = JSON.parse(rawDraft);
         if (parsed && parsed.formValues) {
-          setFormValues((prev) => ({ ...prev, ...parsed.formValues }));
+          setFormValues(parsed.formValues);
           if (parsed.currentModuleIndex !== undefined) {
             setCurrentModuleIndex(parsed.currentModuleIndex);
+          }
+          if (parsed.selectedProgramId) {
+            setSelectedProgramId(parsed.selectedProgramId);
           }
           if (parsed.savedAt) {
             setDraftSavedAt(parsed.savedAt);
           }
-          showToast(`Restored saved application draft (${parsed.savedAt || 'previous session'})`, 'info');
+          showToast(`Restored saved application draft (${parsed.savedAt})`, 'info');
         }
       } catch (e) {
         console.error('Failed to parse saved draft:', e);
       }
     }
-  }, []);
+  }, [showToast]);
 
-  // Fetch Form Schema from API
+  // Fetch Academic Programs, Departments, Form-Modules, and Form-Fields
   const fetchFormSchema = useCallback(async () => {
     try {
       setLoading(true);
-      const [modulesData, fieldsData, deptsData] = await Promise.all([
+      const [modulesData, fieldsData, deptsData, progsData] = await Promise.all([
         getFormModulesList().catch(() => []),
         getFormFieldsList().catch(() => []),
         getDepartmentsList().catch(() => []),
+        getProgramsList().catch(() => []),
       ]);
 
       const rawModules = Array.isArray(modulesData) ? modulesData : (modulesData?.data || []);
       const rawFields = Array.isArray(fieldsData) ? fieldsData : (fieldsData?.data || []);
       const rawDepts = Array.isArray(deptsData) ? deptsData : (deptsData?.data || []);
+      const rawProgs = Array.isArray(progsData) ? progsData : (progsData?.data || []);
 
       const sortedModules = rawModules
         .filter((m) => m.is_active !== false)
@@ -87,30 +97,30 @@ export function Apply() {
       setModules(sortedModules);
       setFields(rawFields.filter((f) => f.is_active !== false));
       setDepartments(rawDepts);
+      setPrograms(rawProgs);
 
-      // Initialize default arrays for dynamic fields
-      setFormValues((prev) => {
-        const next = { ...prev };
-        rawFields.forEach((f) => {
-          if (f.field_type === 'array' && !next[f.field_key]) {
-            next[f.field_key] = [];
-          }
-        });
-        return next;
-      });
+      // Auto-resolve selectedProgramId from department name if provided via URL
+      if (!selectedProgramId && initialDept) {
+        const matchedDept = rawDepts.find(
+          (d) => String(d.department_name).trim().toLowerCase() === String(initialDept).trim().toLowerCase()
+        );
+        if (matchedDept && matchedDept.program_id) {
+          setSelectedProgramId(matchedDept.program_id);
+        }
+      }
     } catch (err) {
-      console.error('Failed to load form schema:', err);
-      showToast('Failed to load application form fields.', 'error');
+      console.error('Failed to load application schema:', err);
+      showToast('Failed to load application form schema.', 'error');
     } finally {
       setLoading(false);
     }
-  }, [showToast]);
+  }, [showToast, selectedProgramId, initialDept]);
 
   useEffect(() => {
     fetchFormSchema();
   }, [fetchFormSchema]);
 
-  // Live WebSocket subscription for dynamic backend schema edits
+  // Real-time WebSocket listener for dynamic schema updates
   useEffect(() => {
     const unsubscribe = realtimeManager.subscribe((payload) => {
       console.log('[Apply] Real-time schema update received:', payload);
@@ -118,6 +128,15 @@ export function Apply() {
     });
     return unsubscribe;
   }, [fetchFormSchema]);
+
+  // Handle Program Selection
+  const handleSelectProgram = (programId, deptName, degreeLevel) => {
+    setSelectedProgramId(programId);
+    if (deptName) setSelectedDepartmentName(deptName);
+    if (degreeLevel) setSelectedDegree(degreeLevel);
+    setSearchParams({ program_id: programId });
+    showToast('Program selected. Dynamic form loaded.', 'success');
+  };
 
   // Active Module & Fields memoization
   const currentModule = modules[currentModuleIndex] || null;
@@ -128,7 +147,7 @@ export function Apply() {
       .sort((a, b) => (a.display_order || 0) - (b.display_order || 0));
   }, [currentModule, fields]);
 
-  // Dynamic Completion Percentage Memoization
+  // Completion Percentage calculation
   const completionPercentage = useMemo(() => {
     if (!fields.length) return 0;
     let requiredCount = 0;
@@ -158,6 +177,7 @@ export function Apply() {
       const draftPayload = {
         formValues,
         currentModuleIndex,
+        selectedProgramId,
         savedAt: timeStr,
       };
       localStorage.setItem('tec_application_draft', JSON.stringify(draftPayload));
@@ -168,37 +188,30 @@ export function Apply() {
     }
   };
 
-  // Reset Form – clears localStorage draft and resets all values to defaults
+  // Reset Form
   const handleResetForm = () => {
-    if (!window.confirm('Reset the entire form? This will clear all entered data and the saved draft.')) return;
+    if (!window.confirm('Reset the entire application form? This will clear all entered data.')) return;
     localStorage.removeItem('tec_application_draft');
-    setFormValues({
-      program: initialDegree,
-      department: initialDept,
-      qualifications: [],
-      academic_performance: [],
-      certificates: [],
-      declaration: false,
-    });
+    setFormValues({});
     setCurrentModuleIndex(0);
     setErrors({});
     setDraftSavedAt(null);
     showToast('Form has been reset. All data cleared.', 'info');
   };
 
-  // Handle Simple Input Change
-  const handleInputChange = (key, value) => {
-    setFormValues((prev) => ({ ...prev, [key]: value }));
-    if (errors[key]) {
-      setErrors((prev) => ({ ...prev, [key]: null }));
+  // Handle Field Value Change
+  const handleInputChange = (fieldKey, value) => {
+    setFormValues((prev) => ({ ...prev, [fieldKey]: value }));
+    if (errors[fieldKey]) {
+      setErrors((prev) => ({ ...prev, [fieldKey]: null }));
     }
   };
 
-  // Handle Array Row Operations
+  // Array Row Operations
   const handleAddArrayRow = (fieldKey, columns) => {
     const newRow = {};
     columns.forEach((col) => {
-      newRow[col.key] = col.type === 'number' ? '' : col.type === 'select' && col.options?.length ? col.options[0] : '';
+      newRow[col.key] = col.type === 'number' ? '' : col.type === 'select' && col.options?.length ? (typeof col.options[0] === 'object' ? col.options[0].value : col.options[0]) : '';
     });
     setFormValues((prev) => ({
       ...prev,
@@ -213,12 +226,11 @@ export function Apply() {
     }));
   };
 
-  const handleArrayRowChange = (fieldKey, rowIndex, colKey, value, columns) => {
+  const handleArrayRowChange = (fieldKey, rowIndex, colKey, value) => {
     setFormValues((prev) => {
       const list = [...(prev[fieldKey] || [])];
       const updatedRow = { ...list[rowIndex], [colKey]: value };
 
-      // Auto-calculate percentage if max & obtained marks are provided
       if (colKey === 'maximum_marks' || colKey === 'obtained_marks') {
         const max = parseFloat(colKey === 'maximum_marks' ? value : updatedRow.maximum_marks);
         const obt = parseFloat(colKey === 'obtained_marks' ? value : updatedRow.obtained_marks);
@@ -232,39 +244,24 @@ export function Apply() {
     });
   };
 
-  // Handle File Upload
-  const handleFileUpload = async (key, file) => {
-    if (!file) return;
-    try {
-      showToast(`Uploading ${file.name}...`, 'info');
-      const res = await uploadDocument(file, key);
-      const fileUrl = res.data && res.data[0] ? res.data[0].file_url : file.name;
-      setFormValues((prev) => ({
-        ...prev,
-        [key]: fileUrl,
-      }));
-      showToast(`Uploaded ${file.name} successfully`, 'success');
-    } catch (err) {
-      showToast(`Failed to upload ${file.name}`, 'error');
-    }
-  };
-
-  // Validate Current Module Fields
-  const validateCurrentModule = () => {
+  // Validate Specific Module Fields
+  const validateModuleFields = (moduleFields) => {
     const newErrors = {};
-    currentModuleFields.forEach((field) => {
+    moduleFields.forEach((field) => {
       const val = formValues[field.field_key];
 
       if (field.required) {
-        if (field.field_type === 'array' || (field.field_key === 'department' && Array.isArray(val))) {
-          if (!val || val.length === 0) {
-            newErrors[field.field_key] = field.field_key === 'department'
-              ? `${field.field_label} is required`
-              : `Add at least one entry for ${field.field_label}`;
+        if (field.field_type === 'array') {
+          if (!val || !Array.isArray(val) || val.length === 0) {
+            newErrors[field.field_key] = `Add at least one entry for ${field.field_label}`;
           }
         } else if (field.field_type === 'checkbox') {
           if (!val) {
-            newErrors[field.field_key] = 'You must accept the declaration to proceed';
+            newErrors[field.field_key] = 'Required field';
+          }
+        } else if (field.field_type === 'file') {
+          if (!val) {
+            newErrors[field.field_key] = `Document ${field.field_label} is required`;
           }
         } else if (val === undefined || val === null || val === '') {
           newErrors[field.field_key] = `${field.field_label} is required`;
@@ -272,10 +269,10 @@ export function Apply() {
       }
 
       // Regex validation if provided
-      if (val && field.validation) {
+      if (val && typeof val === 'string' && field.validation) {
         try {
           const regex = new RegExp(field.validation);
-          if (!regex.test(String(val))) {
+          if (!regex.test(val)) {
             newErrors[field.field_key] = `Invalid format for ${field.field_label}`;
           }
         } catch (e) {
@@ -284,19 +281,20 @@ export function Apply() {
       }
     });
 
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
+    return newErrors;
   };
 
-  // Module Stepper Handlers
+  // Stepper Handlers
   const handleNext = () => {
-    if (validateCurrentModule()) {
+    const moduleErrors = validateModuleFields(currentModuleFields);
+    if (Object.keys(moduleErrors).length === 0) {
       if (currentModuleIndex < modules.length - 1) {
         setCurrentModuleIndex((prev) => prev + 1);
         window.scrollTo({ top: 0, behavior: 'instant' });
       }
     } else {
-      showToast('Please fix the highlighted errors before continuing.', 'error');
+      setErrors(moduleErrors);
+      showToast('Please complete all required fields before continuing.', 'error');
     }
   };
 
@@ -307,60 +305,135 @@ export function Apply() {
     }
   };
 
-  // Final Form Submission
+  // TWO-STAGE SUBMISSION HANDLER
   const handleSubmitForm = async (e) => {
     e.preventDefault();
-    if (!validateCurrentModule()) {
-      showToast('Please complete all required fields.', 'error');
+
+    // Stage 1: Validate ALL fields across ALL modules
+    let allErrors = {};
+    modules.forEach((mod) => {
+      const modFields = fields.filter((f) => f.form_module_id === mod.id);
+      const modErrors = validateModuleFields(modFields);
+      allErrors = { ...allErrors, ...modErrors };
+    });
+
+    if (Object.keys(allErrors).length > 0) {
+      setErrors(allErrors);
+      showToast('Please fix the highlighted required fields before submitting.', 'error');
+      // Jump to first module containing an error
+      const firstErrorKey = Object.keys(allErrors)[0];
+      const errorField = fields.find((f) => f.field_key === firstErrorKey);
+      if (errorField) {
+        const errorModIndex = modules.findIndex((m) => m.id === errorField.form_module_id);
+        if (errorModIndex !== -1) {
+          setCurrentModuleIndex(errorModIndex);
+        }
+      }
       return;
     }
 
-    // Structure flat formValues into nested form_data expected by the backend
-    const nestedFormData = {};
-    modules.forEach((mod) => {
-      nestedFormData[mod.module_key] = {};
-      const modFields = fields.filter((f) => f.form_module_id === mod.id);
-      modFields.forEach((field) => {
-        if (formValues[field.field_key] !== undefined) {
-          nestedFormData[mod.module_key][field.field_key] = formValues[field.field_key];
-        }
-      });
-    });
+    if (!selectedProgramId) {
+      showToast('Please select a valid degree program before submitting.', 'error');
+      return;
+    }
 
-    // Derive program_id based on selected department name
-    const selectedDeptName = Array.isArray(formValues.department)
-      ? formValues.department[0]
-      : formValues.department;
-    const deptObj = departments.find(
-      (d) => d.department_name && d.department_name.trim().toLowerCase() === String(selectedDeptName || '').trim().toLowerCase()
-    );
-    const programId = deptObj ? deptObj.program_id : null;
-
-    const payload = {
-      program_id: programId,
-      form_data: nestedFormData
-    };
+    setSubmitting(true);
+    let updatedValues = { ...formValues };
 
     try {
-      setSubmitting(true);
-      await submitApplication(payload);
+      // Stage 2: Identify and Upload Files (POST /api/documents/upload)
+      const fileKeysToUpload = [];
+      const formData = new FormData();
+      formData.append('docType', 'application_documents');
+
+      fields.forEach((field) => {
+        if (field.field_type === 'file') {
+          const val = formValues[field.field_key];
+          // If value is a File object or has a raw File instance
+          const rawFile = val instanceof File ? val : (val && val.file instanceof File ? val.file : null);
+          if (rawFile) {
+            fileKeysToUpload.push({ key: field.field_key, file: rawFile });
+            formData.append(field.field_key, rawFile);
+          }
+        }
+      });
+
+      if (fileKeysToUpload.length > 0) {
+        showToast(`Uploading ${fileKeysToUpload.length} document file(s)...`, 'info');
+        
+        // Execute Document Upload
+        const uploadRes = await uploadDocuments(formData, (percent) => {
+          const progressObj = {};
+          fileKeysToUpload.forEach((item) => { progressObj[item.key] = percent; });
+          setUploadProgressMap(progressObj);
+        });
+
+        // Parse returned file URLs
+        const uploadedList = Array.isArray(uploadRes?.data) ? uploadRes.data : (uploadRes?.data?.files || []);
+        let hasFailedFile = false;
+        
+        fileKeysToUpload.forEach((item, idx) => {
+          const returnedItem = uploadedList.find((u) => u.file_name === item.file.name) || uploadedList[idx];
+          const fileUrl = returnedItem?.file_url || returnedItem?.url;
+          if (fileUrl) {
+            updatedValues[item.key] = fileUrl;
+          } else {
+            hasFailedFile = true;
+          }
+        });
+
+        if (hasFailedFile || uploadedList.length === 0) {
+          throw new Error('Document upload is currently unavailable due to a server issue. Application creation blocked.');
+        }
+
+        setFormValues(updatedValues);
+        showToast('All documents uploaded successfully!', 'success');
+      }
+
+      // Stage 3: Construct Dynamic form_data Grouped by module_key & Create Application
+      const nestedFormData = {};
+      modules.forEach((mod) => {
+        const mKey = mod.module_key || mod.name?.toLowerCase().replace(/\s+/g, '_') || `module_${mod.id}`;
+        nestedFormData[mKey] = {};
+        const modFields = fields.filter((f) => f.form_module_id === mod.id);
+        modFields.forEach((field) => {
+          if (updatedValues[field.field_key] !== undefined) {
+            nestedFormData[mKey][field.field_key] = updatedValues[field.field_key];
+          }
+        });
+      });
+
+      const payload = {
+        program_id: Number(selectedProgramId),
+        form_data: nestedFormData,
+      };
+
+      showToast('Creating admission application...', 'info');
+      const createRes = await createApplication(payload);
+      const appData = createRes.data || createRes.application || createRes;
+
+      // Update AuthContext & UI State
+      setApplication(appData);
+      setSubmittedApplication(appData);
       localStorage.removeItem('tec_application_draft');
       showToast('Application submitted successfully!', 'success');
-      navigate('/payment');
+
     } catch (err) {
+      console.error('Application Submission Error:', err);
       const errMsg = err.response?.data?.detail || err.response?.data?.message || err.message || 'Failed to submit application.';
       showToast(typeof errMsg === 'object' ? JSON.stringify(errMsg) : errMsg, 'error');
     } finally {
       setSubmitting(false);
+      setUploadProgressMap({});
     }
   };
 
-
-  // Early Returns AFTER all Hook declarations (Rules of Hooks)
+  // Unauthenticated user redirect
   if (!user) {
     return <Navigate to="/login" replace />;
   }
 
+  // Loading State
   if (loading) {
     return (
       <div className="min-h-[calc(100vh-80px)] bg-slate-50 flex items-center justify-center py-12">
@@ -372,34 +445,107 @@ export function Apply() {
     );
   }
 
+  // PREREQUISITE STEP: Program Selection Screen (If program_id is not selected yet)
+  if (!selectedProgramId) {
+    return (
+      <div className="min-h-screen bg-slate-100 py-12 px-4 sm:px-6 lg:px-8">
+        <div className="max-w-4xl mx-auto space-y-8">
+          
+          <div className="bg-tec-navy text-white rounded-3xl p-8 shadow-xl text-center border-b-4 border-tec-gold space-y-3">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/10 text-tec-gold text-xs font-bold">
+              <ShieldCheck className="w-4 h-4" />
+              <span>Step 1 of Admission Process</span>
+            </div>
+            <h1 className="text-3xl font-extrabold tracking-tight">Select Degree Program</h1>
+            <p className="text-slate-300 text-xs sm:text-sm max-w-xl mx-auto">
+              Please choose the degree program and department you wish to apply for at {COLLEGE_CONFIG.name}.
+            </p>
+          </div>
+
+          {/* Program Cards Grid */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {departments.map((dept) => {
+              const prog = programs.find((p) => p.id === dept.program_id) || {};
+              const degreeLevel = prog.program_level || 'UG';
+              const displayName = prog.program_name ? `${prog.program_name} - ${dept.department_name}` : dept.department_name;
+
+              return (
+                <div
+                  key={dept.id}
+                  onClick={() => handleSelectProgram(dept.program_id, displayName, degreeLevel)}
+                  className="bg-white rounded-2xl border border-slate-200 shadow-md hover:shadow-xl hover:border-tec-navy p-6 cursor-pointer transition flex flex-col justify-between group space-y-4"
+                >
+                  <div className="space-y-2">
+                    <span className="inline-block px-3 py-0.5 rounded-full bg-tec-navy/10 text-tec-navy text-xs font-extrabold">
+                      {degreeLevel} Degree
+                    </span>
+                    <h3 className="text-lg font-extrabold text-slate-900 group-hover:text-tec-navy transition">
+                      {displayName}
+                    </h3>
+                    <p className="text-xs text-slate-500">
+                      Duration: {prog.duration ? `${prog.duration} Years` : (degreeLevel === 'UG' ? '4 Years' : '2 Years')} • Full Time
+                    </p>
+                  </div>
+
+                  <div className="pt-3 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-tec-navy group-hover:translate-x-1 transition">
+                    <span>Fill Application Form</span>
+                    <ArrowRight className="w-4 h-4" />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-slate-100 py-8 px-4 sm:px-6 lg:px-8">
       <div className="max-w-7xl mx-auto space-y-6">
 
-        {/* Top Header Banner with Save as Draft & Reset Form Buttons */}
+        {/* Post-Submission Confirmation Modal */}
+        {submittedApplication && (
+          <ApplicationConfirmationModal
+            applicationData={submittedApplication}
+            onClose={() => setSubmittedApplication(null)}
+          />
+        )}
+
+        {/* Top Header Banner */}
         <div className="bg-tec-navy text-white rounded-2xl p-6 sm:p-8 shadow-xl flex flex-col lg:flex-row lg:items-center justify-between gap-6 border-b-4 border-tec-gold">
           <div>
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded bg-white/10 text-tec-gold text-xs font-bold mb-2">
               <ShieldCheck className="w-4 h-4" />
-              <span>TNEA Counselling Code: {COLLEGE_CONFIG.counsellingCode} • Academic Year {academicYear}</span>
+              <span>TNEA Code: {COLLEGE_CONFIG.counsellingCode} • Academic Year {academicYear}</span>
             </div>
             <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight">
-              Online Admission Application Form
+              Online Application Form
             </h1>
             <p className="text-slate-300 text-xs sm:text-sm mt-1">
-              {COLLEGE_CONFIG.name} — Kilambi, Kanchipuram
+              Program ID: <span className="font-bold text-tec-gold">Prog-{selectedProgramId}</span> {selectedDepartmentName ? `(${selectedDepartmentName})` : ''}
             </p>
           </div>
 
-          {/* Action Buttons */}
+          {/* Actions: Save Draft & Change Program & Reset Form */}
           <div className="flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              onClick={() => setSelectedProgramId(null)}
+              className="px-3.5 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-bold transition flex items-center gap-1.5 cursor-pointer border border-white/20"
+            >
+              <BookOpen className="w-4 h-4" />
+              <span>Change Program</span>
+            </button>
+
             <button
               type="button"
               onClick={handleSaveDraft}
               className="px-4 py-2.5 rounded-xl bg-tec-gold hover:bg-tec-gold-hover text-slate-950 text-xs font-extrabold shadow-md transition flex items-center gap-2 cursor-pointer border border-amber-300"
             >
               <Save className="w-4 h-4" />
-              <span>Save as Draft</span>
+              <span>Save Draft</span>
             </button>
 
             <button
@@ -408,20 +554,20 @@ export function Apply() {
               className="px-4 py-2.5 rounded-xl bg-rose-600/80 hover:bg-rose-600 text-white text-xs font-extrabold shadow-md transition flex items-center gap-2 cursor-pointer border border-rose-400/40"
             >
               <RotateCcw className="w-4 h-4" />
-              <span>Reset Form</span>
+              <span>Reset</span>
             </button>
           </div>
         </div>
 
-        {/* Main Layout: Left Sidebar (sticky) + Right Form (scrolls) */}
+        {/* Main Application Layout: Sidebar (Sticky) + Active Module Form */}
         <div className="flex items-start gap-6">
-          {/* Left Sidebar – position sticky, stays fixed while right scrolls */}
+          
+          {/* Left Sidebar Stepper Navigation */}
           <div className="hidden lg:block w-72 shrink-0 sticky top-24 self-start z-10">
             <div className="bg-white rounded-2xl border border-slate-200 shadow-lg overflow-hidden">
-              {/* Header */}
               <div className="px-5 pt-5 pb-3 border-b border-slate-100 flex items-center justify-between">
                 <div>
-                  <h3 className="text-base font-extrabold text-slate-900">Form Modules</h3>
+                  <h3 className="text-base font-extrabold text-slate-900">Form Sections</h3>
                   <p className="text-xs text-slate-500 font-medium mt-0.5">
                     Step {currentModuleIndex + 1} of {modules.length}
                   </p>
@@ -432,7 +578,7 @@ export function Apply() {
                 </div>
               </div>
 
-              {/* Progress Bar */}
+              {/* Overall Progress Bar */}
               <div className="px-5 pt-3">
                 <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
                   <div
@@ -442,7 +588,7 @@ export function Apply() {
                 </div>
               </div>
 
-              {/* Scrollable Module List */}
+              {/* Module Nav Items */}
               <div className="px-5 py-3 space-y-2 max-h-[calc(100vh-14rem)] overflow-y-auto">
                 {modules.map((mod, idx) => {
                   const isActive = idx === currentModuleIndex;
@@ -452,517 +598,102 @@ export function Apply() {
                     <button
                       key={mod.id}
                       type="button"
-                      onClick={() => {
-                        if (idx <= currentModuleIndex || isCompleted) {
-                          setCurrentModuleIndex(idx);
-                        }
-                      }}
-                      className={`w-full flex items-center justify-between p-3 rounded-xl text-left transition border ${
+                      onClick={() => setCurrentModuleIndex(idx)}
+                      className={`w-full text-left p-3 rounded-xl transition flex items-center gap-3 cursor-pointer ${
                         isActive
-                          ? 'bg-tec-navy text-white border-tec-navy shadow-md font-bold'
+                          ? 'bg-tec-navy text-white font-extrabold shadow-md'
                           : isCompleted
-                          ? 'bg-emerald-50 text-slate-800 border-emerald-200 hover:bg-emerald-100/60 font-semibold cursor-pointer'
-                          : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100 font-medium'
+                          ? 'bg-emerald-50 text-emerald-900 font-bold border border-emerald-200'
+                          : 'bg-slate-50 text-slate-700 hover:bg-slate-100 font-medium'
                       }`}
                     >
-                      <div className="flex items-center gap-3">
-                        <span
-                          className={`w-7 h-7 rounded-full text-xs font-black flex items-center justify-center shrink-0 ${
-                            isActive
-                              ? 'bg-tec-gold text-slate-950'
-                              : isCompleted
-                              ? 'bg-emerald-600 text-white'
-                              : 'bg-slate-200 text-slate-700'
-                          }`}
-                        >
-                          {isCompleted ? '✓' : idx + 1}
-                        </span>
-                        <span className="text-xs sm:text-sm leading-snug">{mod.module_name}</span>
+                      <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs shrink-0 ${
+                        isActive
+                          ? 'bg-tec-gold text-slate-950 font-black'
+                          : isCompleted
+                          ? 'bg-emerald-500 text-white'
+                          : 'bg-slate-200 text-slate-600 font-bold'
+                      }`}>
+                        {isCompleted ? '✓' : idx + 1}
                       </div>
-                      {isCompleted && <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />}
+                      <span className="truncate text-xs">{mod.module_name || mod.name}</span>
                     </button>
                   );
                 })}
               </div>
-
-              {/* Last Saved Info */}
-              {draftSavedAt && (
-                <div className="px-5 pb-4 pt-2 border-t border-slate-100 flex items-center gap-2 text-[11px] text-slate-500 font-medium">
-                  <BookmarkCheck className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                  <span>Draft saved at {draftSavedAt}</span>
-                </div>
-              )}
             </div>
           </div>
 
-          {/* Right Main Form Container – takes remaining width, page scrolls naturally */}
-          <div className="flex-1 min-w-0 bg-white rounded-2xl border border-slate-200 shadow-xl p-6 sm:p-8 space-y-6">
-            <div className="border-b border-slate-100 pb-4 flex items-center justify-between">
-              <div>
-                <span className="text-xs font-bold text-tec-navy uppercase tracking-widest">
-                  Step {currentModuleIndex + 1} of {modules.length}
-                </span>
-                <h2 className="text-2xl font-extrabold text-slate-900 mt-0.5">
-                  {currentModule?.module_name}
-                </h2>
-              </div>
-              <span className="text-xs text-slate-400 font-medium hidden sm:inline">
-                All fields marked with <span className="text-rose-500 font-bold">*</span> are required
-              </span>
-            </div>
+          {/* Right Main Form Container */}
+          <div className="flex-grow space-y-6">
+            
+            {/* Active Module Renderer */}
+            {currentModule ? (
+              <form onSubmit={handleSubmitForm} className="space-y-6">
+                <DynamicFormModule
+                  module={currentModule}
+                  fields={currentModuleFields}
+                  formValues={formValues}
+                  errors={errors}
+                  uploadProgressMap={uploadProgressMap}
+                  onChange={handleInputChange}
+                  onAddArrayRow={handleAddArrayRow}
+                  onRemoveArrayRow={handleRemoveArrayRow}
+                  onArrayRowChange={handleArrayRowChange}
+                />
 
-            <form onSubmit={handleSubmitForm} className="space-y-6">
-
-              {/* Fields Renderer */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-5">
-                {currentModuleFields.map((field) => {
-                  const value = formValues[field.field_key] ?? '';
-                  const fieldError = errors[field.field_key];
-
-                  // 1. Radio Input
-                  if (field.field_type === 'radio') {
-                    const options = field.choices || ['UG', 'PG'];
-                    return (
-                      <div key={field.id} className="md:col-span-2 space-y-2">
-                        <label className="block text-sm font-bold text-slate-800">
-                          {field.field_label} {field.required && <span className="text-rose-500">*</span>}
-                        </label>
-                        <div className="flex flex-wrap gap-4">
-                          {options.map((opt) => (
-                            <label
-                              key={opt}
-                              className={`flex items-center gap-2 px-4 py-2.5 rounded-lg border text-sm font-bold cursor-pointer transition ${
-                                value === opt
-                                  ? 'bg-tec-navy text-white border-tec-navy shadow-xs'
-                                  : 'bg-slate-50 text-slate-700 border-slate-200 hover:border-slate-300'
-                              }`}
-                            >
-                              <input
-                                type="radio"
-                                name={field.field_key}
-                                value={opt}
-                                checked={value === opt}
-                                onChange={(e) => handleInputChange(field.field_key, e.target.value)}
-                                className="hidden"
-                              />
-                              <span>{opt}</span>
-                            </label>
-                          ))}
-                        </div>
-                        {fieldError && <p className="text-xs text-rose-600 font-semibold">{fieldError}</p>}
-                      </div>
-                    );
-                  }
-
-                  // 2. Select Dropdown Input
-                  if (field.field_type === 'select') {
-                    let options = field.choices || [];
-                    if (field.field_key === 'department' && (!options || options.length === 0)) {
-                      const currentProgram = formValues.program || 'UG';
-                      options = departments
-                        .filter((d) => d.program_level === currentProgram || !d.program_level)
-                        .map((d) => d.department_name);
-
-                      const deptArray = Array.isArray(value) ? value : (value ? [value] : []);
-
-                      const handleDeptChoiceChange = (choiceIndex, val) => {
-                        const nextDeptArray = [...deptArray];
-                        nextDeptArray[choiceIndex] = val;
-                        // Filter out empty trailing elements to keep array clean
-                        const cleaned = [];
-                        for (let i = 0; i < 3; i++) {
-                          const v = nextDeptArray[i];
-                          if (v !== undefined && v !== "") {
-                            cleaned.push(v);
-                          }
-                        }
-                        handleInputChange('department', cleaned);
-                      };
-
-                      return (
-                        <div key={field.id} className="md:col-span-2 space-y-4">
-                          <label className="block text-sm font-bold text-slate-800">
-                            Course / Department Preference (Select up to 3 choices) {field.required && <span className="text-rose-500">*</span>}
-                          </label>
-                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                            {/* Choice 1 */}
-                            <div className="space-y-1.5">
-                              <span className="text-xs font-semibold text-slate-500">Choice 1 <span className="text-rose-500">*</span></span>
-                              <select
-                                value={deptArray[0] || ""}
-                                onChange={(e) => handleDeptChoiceChange(0, e.target.value)}
-                                className={`w-full px-3.5 py-2.5 rounded-lg border text-sm font-medium transition focus:outline-none focus:ring-2 focus:ring-tec-navy ${
-                                  fieldError ? 'border-rose-500 bg-rose-50/20' : 'border-slate-300 bg-white'
-                                }`}
-                              >
-                                <option value="">Select Choice 1</option>
-                                {options.map((opt) => (
-                                  <option key={opt} value={opt} disabled={deptArray.slice(1).includes(opt)}>
-                                    {opt}
-                                  </option>
-                                ))}
-                              </select>
-                            </div>
-
-                            {/* Choice 2 */}
-                            <div className="space-y-1.5">
-                              <span className="text-xs font-semibold text-slate-500">Choice 2 (Optional)</span>
-                              <select
-                                value={deptArray[1] || ""}
-                                disabled={!deptArray[0]}
-                                onChange={(e) => handleDeptChoiceChange(1, e.target.value)}
-                                className="w-full px-3.5 py-2.5 rounded-lg border border-slate-300 bg-white text-sm font-medium transition focus:outline-none focus:ring-2 focus:ring-tec-navy"
-                              >
-                                <option value="">Select Choice 2</option>
-                                {options.map((opt) => (
-                                  <option key={opt} value={opt} disabled={deptArray[0] === opt || deptArray[2] === opt}>
-                                    {opt}
-                                  </option>
-                                ))}
-                              </select>
-                            </div>
-
-                            {/* Choice 3 */}
-                            <div className="space-y-1.5">
-                              <span className="text-xs font-semibold text-slate-500">Choice 3 (Optional)</span>
-                              <select
-                                value={deptArray[2] || ""}
-                                disabled={!deptArray[1]}
-                                onChange={(e) => handleDeptChoiceChange(2, e.target.value)}
-                                className="w-full px-3.5 py-2.5 rounded-lg border border-slate-300 bg-white text-sm font-medium transition focus:outline-none focus:ring-2 focus:ring-tec-navy"
-                              >
-                                <option value="">Select Choice 3</option>
-                                {options.map((opt) => (
-                                  <option key={opt} value={opt} disabled={deptArray[0] === opt || deptArray[1] === opt}>
-                                    {opt}
-                                  </option>
-                                ))}
-                              </select>
-                            </div>
-                          </div>
-                          {fieldError && <p className="text-xs text-rose-600 font-semibold">{fieldError}</p>}
-                        </div>
-                      );
-                    }
-
-                    return (
-                      <div key={field.id} className="space-y-1.5">
-                        <label className="block text-sm font-bold text-slate-800">
-                          {field.field_label} {field.required && <span className="text-rose-500">*</span>}
-                        </label>
-                        <select
-                          value={value}
-                          onChange={(e) => handleInputChange(field.field_key, e.target.value)}
-                          className={`w-full px-3.5 py-2.5 rounded-lg border text-sm font-medium transition focus:outline-none focus:ring-2 focus:ring-tec-navy ${
-                            fieldError ? 'border-rose-500 bg-rose-50/20' : 'border-slate-300 bg-white'
-                          }`}
-                        >
-                          <option value="">Select {field.field_label}</option>
-                          {options.map((opt) => {
-                            const val = typeof opt === 'object' ? opt.value : opt;
-                            const lbl = typeof opt === 'object' ? opt.label : opt;
-                            return (
-                              <option key={val} value={val}>
-                                {lbl}
-                              </option>
-                            );
-                          })}
-                        </select>
-                        {fieldError && <p className="text-xs text-rose-600 font-semibold">{fieldError}</p>}
-                      </div>
-                    );
-                  }
-
-                  // 3. Textarea Input
-                  if (field.field_type === 'textarea') {
-                    return (
-                      <div key={field.id} className="md:col-span-2 space-y-1.5">
-                        <label className="block text-sm font-bold text-slate-800">
-                          {field.field_label} {field.required && <span className="text-rose-500">*</span>}
-                        </label>
-                        <textarea
-                          rows={3}
-                          value={value}
-                          placeholder={field.placeholder || `Enter ${field.field_label}`}
-                          onChange={(e) => handleInputChange(field.field_key, e.target.value)}
-                          className={`w-full px-3.5 py-2.5 rounded-lg border text-sm font-medium transition focus:outline-none focus:ring-2 focus:ring-tec-navy ${
-                            fieldError ? 'border-rose-500 bg-rose-50/20' : 'border-slate-300 bg-white'
-                          }`}
-                        />
-                        {fieldError && <p className="text-xs text-rose-600 font-semibold">{fieldError}</p>}
-                      </div>
-                    );
-                  }
-
-                  // 4. File Upload Input
-                  if (field.field_type === 'file') {
-                    return (
-                      <div key={field.id} className="space-y-1.5">
-                        <label className="block text-sm font-bold text-slate-800">
-                          {field.field_label} {field.required && <span className="text-rose-500">*</span>}
-                        </label>
-                        <div className="border-2 border-dashed border-slate-300 rounded-xl p-4 text-center hover:border-tec-navy transition bg-slate-50">
-                          {value ? (
-                            <div className="flex items-center justify-between text-xs font-bold text-emerald-700 bg-emerald-50 p-2.5 rounded-lg border border-emerald-200">
-                              <span className="truncate max-w-[200px]">✓ {value}</span>
-                              <button
-                                type="button"
-                                onClick={() => handleInputChange(field.field_key, '')}
-                                className="text-rose-600 hover:underline ml-2"
-                              >
-                                Remove
-                              </button>
-                            </div>
-                          ) : (
-                            <label className="cursor-pointer flex flex-col items-center gap-1.5">
-                              <Upload className="w-6 h-6 text-tec-navy" />
-                              <span className="text-xs font-bold text-tec-navy">Click to Upload File</span>
-                              <span className="text-[10px] text-slate-400">PDF, JPG, PNG up to 5MB</span>
-                              <input
-                                type="file"
-                                accept="image/*,application/pdf"
-                                onChange={(e) => handleFileUpload(field.field_key, e.target.files[0])}
-                                className="hidden"
-                              />
-                            </label>
-                          )}
-                        </div>
-                        {fieldError && <p className="text-xs text-rose-600 font-semibold">{fieldError}</p>}
-                      </div>
-                    );
-                  }
-
-                  // 5. Checkbox Input (Declaration)
-                  if (field.field_type === 'checkbox') {
-                    return (
-                      <div key={field.id} className="md:col-span-2 p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-2">
-                        <label className="flex items-start gap-3 cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={Boolean(value)}
-                            onChange={(e) => handleInputChange(field.field_key, e.target.checked)}
-                            className="w-5 h-5 rounded border-slate-300 text-tec-navy focus:ring-tec-navy mt-0.5"
-                          />
-                          <span className="text-xs font-medium text-slate-700 leading-relaxed">
-                            {field.field_label} {field.required && <span className="text-rose-500 font-bold">*</span>}
-                          </span>
-                        </label>
-                        {fieldError && <p className="text-xs text-rose-600 font-semibold">{fieldError}</p>}
-                      </div>
-                    );
-                  }
-
-                  // 6. Dynamic Array Table Input (Qualifications, Performance, Certificates)
-                  if (field.field_type === 'array') {
-                    const columns = field.choices || [];
-                    const rows = formValues[field.field_key] || [];
-
-                    return (
-                      <div key={field.id} className="md:col-span-2 space-y-3">
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <label className="block text-sm font-bold text-slate-900">
-                              {field.field_label} {field.required && <span className="text-rose-500">*</span>}
-                            </label>
-                            {field.help_text && (
-                              <p className="text-xs text-slate-500">{field.help_text}</p>
-                            )}
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => handleAddArrayRow(field.field_key, columns)}
-                            className="px-3 py-1.5 rounded-lg bg-tec-navy text-white text-xs font-bold hover:bg-tec-navy-dark transition flex items-center gap-1 shadow-xs cursor-pointer"
-                          >
-                            <Plus className="w-4 h-4" />
-                            <span>Add Entry</span>
-                          </button>
-                        </div>
-
-                        {fieldError && <p className="text-xs text-rose-600 font-semibold">{fieldError}</p>}
-
-                        {rows.length === 0 ? (
-                          <div className="text-center py-8 bg-slate-50 rounded-xl border border-dashed border-slate-300 text-xs text-slate-500">
-                            No entries added yet. Click <strong>"Add Entry"</strong> above to populate details.
-                          </div>
-                        ) : (
-                          <div className="overflow-x-auto rounded-xl border border-slate-200">
-                            <table className="w-full text-left text-xs">
-                              <thead className="bg-slate-100 text-slate-700 font-bold uppercase text-[10px] tracking-wider border-b border-slate-200">
-                                <tr>
-                                  {columns.map((col) => (
-                                    <th key={col.key} className="p-3">
-                                      {col.label} {col.required && <span className="text-rose-500">*</span>}
-                                    </th>
-                                  ))}
-                                  <th className="p-3 text-right">Action</th>
-                                </tr>
-                              </thead>
-                              <tbody className="divide-y divide-slate-200 bg-white">
-                                {rows.map((row, rIdx) => (
-                                  <tr key={rIdx} className="hover:bg-slate-50/50">
-                                    {columns.map((col) => {
-                                      const colVal = row[col.key] ?? '';
-
-                                      return (
-                                        <td key={col.key} className="p-2.5">
-                                          {col.type === 'select' ? (
-                                            <select
-                                              value={colVal}
-                                              onChange={(e) =>
-                                                handleArrayRowChange(field.field_key, rIdx, col.key, e.target.value, columns)
-                                              }
-                                              className="w-full px-2.5 py-1.5 rounded border border-slate-300 text-xs font-medium focus:outline-none focus:ring-1 focus:ring-tec-navy"
-                                            >
-                                              <option value="">Select</option>
-                                              {(col.options || []).map((opt) => (
-                                                <option key={opt} value={opt}>
-                                                  {opt}
-                                                </option>
-                                              ))}
-                                            </select>
-                                          ) : col.type === 'file' ? (
-                                            <div>
-                                              {colVal ? (
-                                                <div className="flex items-center gap-1">
-                                                  <span className="text-emerald-700 font-bold truncate max-w-[120px] block" title={colVal}>
-                                                    ✓ {colVal.split('/').pop()}
-                                                  </span>
-                                                  <button
-                                                    type="button"
-                                                    onClick={() => handleArrayRowChange(field.field_key, rIdx, col.key, '', columns)}
-                                                    className="text-rose-600 hover:underline text-[10px]"
-                                                  >
-                                                    Remove
-                                                  </button>
-                                                </div>
-                                              ) : (
-                                                <input
-                                                  type="file"
-                                                  accept="image/*,application/pdf"
-                                                  onChange={async (e) => {
-                                                    const file = e.target.files[0];
-                                                    if (file) {
-                                                      try {
-                                                        showToast(`Uploading ${file.name}...`, 'info');
-                                                        const res = await uploadDocument(file, col.key);
-                                                        const fileUrl = res.data && res.data[0] ? res.data[0].file_url : file.name;
-                                                        handleArrayRowChange(field.field_key, rIdx, col.key, fileUrl, columns);
-                                                        showToast(`Uploaded ${file.name} successfully`, 'success');
-                                                      } catch (err) {
-                                                        showToast(`Failed to upload ${file.name}`, 'error');
-                                                      }
-                                                    }
-                                                  }}
-                                                  className="text-[11px] text-slate-500 file:mr-2 file:py-1 file:px-2 file:rounded file:border-0 file:text-xs file:font-bold file:bg-tec-navy file:text-white"
-                                                />
-                                              )}
-                                            </div>
-                                          ) : (
-                                            <input
-                                              type={col.type === 'number' ? 'number' : 'text'}
-                                              readOnly={col.readonly}
-                                              value={colVal}
-                                              placeholder={col.label}
-                                              onChange={(e) =>
-                                                handleArrayRowChange(field.field_key, rIdx, col.key, e.target.value, columns)
-                                              }
-                                              className={`w-full px-2.5 py-1.5 rounded border text-xs font-medium focus:outline-none focus:ring-1 focus:ring-tec-navy ${
-                                                col.readonly ? 'bg-slate-100 text-slate-500 font-bold' : 'border-slate-300'
-                                              }`}
-                                            />
-                                          )}
-                                        </td>
-                                      );
-                                    })}
-                                    <td className="p-2.5 text-right">
-                                      <button
-                                        type="button"
-                                        onClick={() => handleRemoveArrayRow(field.field_key, rIdx)}
-                                        className="p-1 text-rose-600 hover:bg-rose-50 rounded transition"
-                                        title="Remove entry"
-                                      >
-                                        <Trash2 className="w-4 h-4" />
-                                      </button>
-                                    </td>
-                                  </tr>
-                                ))}
-                              </tbody>
-                            </table>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  }
-
-                  // 7. Standard Input (Text, Email, Number, Date)
-                  const isNumber = field.field_type === 'number';
-                  const isDate = field.field_type === 'date';
-                  const isEmail = field.field_type === 'email';
-
-                  return (
-                    <div key={field.id} className="space-y-1.5">
-                      <label className="block text-sm font-bold text-slate-800">
-                        {field.field_label} {field.required && <span className="text-rose-500">*</span>}
-                      </label>
-                      <input
-                        type={isDate ? 'date' : isEmail ? 'email' : isNumber ? 'number' : 'text'}
-                        value={value}
-                        placeholder={field.placeholder || `Enter ${field.field_label}`}
-                        onChange={(e) => handleInputChange(field.field_key, e.target.value)}
-                        className={`w-full px-3.5 py-2.5 rounded-lg border text-sm font-medium transition focus:outline-none focus:ring-2 focus:ring-tec-navy ${
-                          fieldError ? 'border-rose-500 bg-rose-50/20' : 'border-slate-300 bg-white'
-                        }`}
-                      />
-                      {fieldError && <p className="text-xs text-rose-600 font-semibold">{fieldError}</p>}
-                    </div>
-                  );
-                })}
-              </div>
-
-              {/* Stepper Action Buttons */}
-              <div className="pt-6 border-t border-slate-100 flex items-center justify-between">
-                <button
-                  type="button"
-                  disabled={currentModuleIndex === 0}
-                  onClick={handleBack}
-                  className={`px-5 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 transition ${
-                    currentModuleIndex === 0
-                      ? 'opacity-40 cursor-not-allowed bg-slate-100 text-slate-400'
-                      : 'bg-slate-200 text-slate-800 hover:bg-slate-300 cursor-pointer'
-                  }`}
-                >
-                  <ArrowLeft className="w-4 h-4" />
-                  <span>Back</span>
-                </button>
-
-                {currentModuleIndex < modules.length - 1 ? (
+                {/* Module Navigation & Submit Buttons */}
+                <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 flex items-center justify-between gap-4">
                   <button
                     type="button"
-                    onClick={handleNext}
-                    className="px-6 py-2.5 rounded-xl bg-tec-navy text-white font-extrabold text-sm hover:bg-tec-navy-dark transition flex items-center gap-2 shadow-md cursor-pointer"
+                    onClick={handleBack}
+                    disabled={currentModuleIndex === 0}
+                    className={`px-5 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2 transition cursor-pointer ${
+                      currentModuleIndex === 0
+                        ? 'opacity-50 cursor-not-allowed bg-slate-100 text-slate-400'
+                        : 'bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-200'
+                    }`}
                   >
-                    <span>Next Step</span>
-                    <ArrowRight className="w-4 h-4 text-tec-gold" />
+                    <ArrowLeft className="w-4 h-4" />
+                    <span>Previous Section</span>
                   </button>
-                ) : (
-                  <button
-                    type="submit"
-                    disabled={submitting}
-                    className="px-8 py-3 rounded-xl bg-tec-gold hover:bg-tec-gold-hover text-slate-950 font-black text-base shadow-xl transition flex items-center gap-2 cursor-pointer disabled:opacity-50"
-                  >
-                    {submitting ? (
-                      <span>Submitting Application...</span>
-                    ) : (
-                      <>
-                        <span>Submit Application</span>
-                        <CheckCircle2 className="w-5 h-5" />
-                      </>
-                    )}
-                  </button>
-                )}
-              </div>
 
-            </form>
+                  {currentModuleIndex < modules.length - 1 ? (
+                    <button
+                      type="button"
+                      onClick={handleNext}
+                      className="px-6 py-2.5 rounded-xl bg-tec-navy hover:bg-tec-navy-dark text-white font-extrabold text-xs flex items-center gap-2 shadow-md transition cursor-pointer"
+                    >
+                      <span>Next Section</span>
+                      <ArrowRight className="w-4 h-4" />
+                    </button>
+                  ) : (
+                    <button
+                      type="submit"
+                      disabled={submitting}
+                      className="px-8 py-3 rounded-xl bg-tec-gold hover:bg-tec-gold-hover text-slate-950 font-black text-sm flex items-center gap-2 shadow-lg transition cursor-pointer border border-amber-300"
+                    >
+                      {submitting ? (
+                        <>
+                          <div className="w-4 h-4 border-2 border-slate-950 border-t-transparent rounded-full animate-spin" />
+                          <span>Submitting Application...</span>
+                        </>
+                      ) : (
+                        <>
+                          <CheckCircle2 className="w-5 h-5 text-slate-950" />
+                          <span>Submit Application</span>
+                        </>
+                      )}
+                    </button>
+                  )}
+                </div>
+              </form>
+            ) : (
+              <div className="bg-white rounded-2xl p-8 text-center text-slate-500 font-bold text-sm">
+                No form modules available.
+              </div>
+            )}
+
           </div>
 
         </div>
@@ -971,5 +702,3 @@ export function Apply() {
     </div>
   );
 }
-
-export default Apply;

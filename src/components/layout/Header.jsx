@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { useAuth } from '../../Context/AuthContext';
+import { useAuth } from '../../context/AuthContext';
 import { Menu, X, LogOut, FileText, ChevronDown } from 'lucide-react';
 import { COLLEGE_CONFIG } from '../../Config/collegeConfig';
 

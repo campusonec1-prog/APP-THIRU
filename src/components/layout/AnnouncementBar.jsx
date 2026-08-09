@@ -1,6 +1,6 @@
 import React from 'react';
 import { Phone, Mail, Award } from 'lucide-react';
-import { useAuth } from '../../Context/AuthContext';
+import { useAuth } from '../../context/AuthContext';
 import { COLLEGE_CONFIG } from '../../Config/collegeConfig';
 
 export function AnnouncementBar() {
