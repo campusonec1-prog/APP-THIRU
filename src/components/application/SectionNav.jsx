@@ -1,5 +1,5 @@
 import React from 'react';
-import { CheckCircle, Circle, BookmarkCheck } from 'lucide-react';
+import { CheckCircle, Circle, BookmarkCheck, Lock } from 'lucide-react';
 
 export const SECTIONS = [
   { id: 'section-a', title: 'A. Program & Branch' },
@@ -37,22 +37,25 @@ export function SectionNav({ activeSection, completedSections = {}, onSaveDraft,
           const isActive = activeSection === sec.id;
 
           return (
-            <button
+            <div
               key={sec.id}
-              onClick={() => scrollToSection(sec.id)}
-              className={`w-full text-left px-3 py-2.5 rounded-lg text-xs font-semibold transition flex items-center justify-between group ${
+              className={`w-full text-left px-3 py-2.5 rounded-lg text-xs font-semibold transition flex items-center justify-between ${
                 isActive
                   ? 'bg-tec-navy text-white shadow-xs font-bold'
-                  : 'text-slate-700 hover:bg-slate-100'
+                  : isDone
+                  ? 'text-emerald-700 bg-emerald-50'
+                  : 'text-slate-400 bg-slate-50 cursor-not-allowed'
               }`}
             >
               <span className="truncate pr-2">{sec.title}</span>
               {isDone ? (
                 <CheckCircle className={`w-4 h-4 shrink-0 ${isActive ? 'text-tec-gold' : 'text-emerald-600'}`} />
+              ) : isActive ? (
+                <Circle className="w-4 h-4 shrink-0 text-white/60" />
               ) : (
-                <Circle className={`w-4 h-4 shrink-0 ${isActive ? 'text-white/60' : 'text-slate-300'}`} />
+                <Lock className="w-3.5 h-3.5 shrink-0 text-slate-300" />
               )}
-            </button>
+            </div>
           );
         })}
       </nav>

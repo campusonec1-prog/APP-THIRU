@@ -4,6 +4,130 @@ import { Select } from '../common/Select';
 import { FileUpload } from '../common/FileUpload';
 import { Plus, Trash2 } from 'lucide-react';
 
+/**
+ * Normalize options from various backend formats into { value, label } objects.
+ * Handles: array of strings, array of objects, comma-separated string, single string, etc.
+ */
+function normalizeOptions(rawOptions, fieldKey) {
+  // If it's already a proper array
+  if (Array.isArray(rawOptions) && rawOptions.length > 0) {
+    return rawOptions.map((opt) => {
+      if (typeof opt === 'object' && opt !== null) {
+        return { value: opt.value ?? opt.id ?? opt.key ?? opt.name ?? '', label: opt.label ?? opt.name ?? opt.display ?? String(opt.value ?? '') };
+      }
+      return { value: String(opt), label: String(opt) };
+    });
+  }
+
+  // If it's a comma-separated string like "Male,Female,Other"
+  if (typeof rawOptions === 'string' && rawOptions.trim().length > 0) {
+    return rawOptions.split(',').map((s) => s.trim()).filter(Boolean).map((s) => ({ value: s, label: s }));
+  }
+
+  // Fallback: provide hardcoded options for well-known field keys
+  const key = (fieldKey || '').toLowerCase();
+  if (key.includes('gender') || key === 'sex') {
+    return [
+      { value: 'Male', label: 'Male' },
+      { value: 'Female', label: 'Female' },
+      { value: 'Transgender', label: 'Transgender' },
+    ];
+  }
+  if (key.includes('community') || key.includes('caste_category')) {
+    return [
+      { value: 'OC', label: 'OC (General)' },
+      { value: 'BC', label: 'BC' },
+      { value: 'BCM', label: 'BCM' },
+      { value: 'MBC', label: 'MBC' },
+      { value: 'DNC', label: 'DNC' },
+      { value: 'SC', label: 'SC' },
+      { value: 'SCA', label: 'SCA' },
+      { value: 'ST', label: 'ST' },
+    ];
+  }
+  if (key.includes('blood_group') || key === 'blood_type') {
+    return [
+      { value: 'A+', label: 'A+' },
+      { value: 'A-', label: 'A-' },
+      { value: 'B+', label: 'B+' },
+      { value: 'B-', label: 'B-' },
+      { value: 'AB+', label: 'AB+' },
+      { value: 'AB-', label: 'AB-' },
+      { value: 'O+', label: 'O+' },
+      { value: 'O-', label: 'O-' },
+    ];
+  }
+  if (key.includes('religion')) {
+    return [
+      { value: 'Hindu', label: 'Hindu' },
+      { value: 'Muslim', label: 'Muslim' },
+      { value: 'Christian', label: 'Christian' },
+      { value: 'Sikh', label: 'Sikh' },
+      { value: 'Buddhist', label: 'Buddhist' },
+      { value: 'Jain', label: 'Jain' },
+      { value: 'Other', label: 'Other' },
+    ];
+  }
+  if (key.includes('nationality')) {
+    return [
+      { value: 'Indian', label: 'Indian' },
+      { value: 'NRI', label: 'NRI' },
+      { value: 'Other', label: 'Other' },
+    ];
+  }
+  if (key.includes('mother_tongue') || key === 'language') {
+    return [
+      { value: 'Tamil', label: 'Tamil' },
+      { value: 'English', label: 'English' },
+      { value: 'Hindi', label: 'Hindi' },
+      { value: 'Telugu', label: 'Telugu' },
+      { value: 'Malayalam', label: 'Malayalam' },
+      { value: 'Kannada', label: 'Kannada' },
+      { value: 'Urdu', label: 'Urdu' },
+      { value: 'Other', label: 'Other' },
+    ];
+  }
+
+  return [];
+}
+
+/**
+ * Format Aadhaar number: 1234 5678 9012
+ */
+function formatAadhaar(raw) {
+  const digits = raw.replace(/\D/g, '').slice(0, 12);
+  const parts = [];
+  for (let i = 0; i < digits.length; i += 4) {
+    parts.push(digits.slice(i, i + 4));
+  }
+  return parts.join(' ');
+}
+
+/**
+ * Format Indian mobile/phone number: 12345 67890
+ */
+function formatMobile(raw) {
+  const digits = raw.replace(/\D/g, '').slice(0, 10);
+  if (digits.length <= 5) return digits;
+  return digits.slice(0, 5) + ' ' + digits.slice(5);
+}
+
+/**
+ * Detect if a field key relates to aadhaar
+ */
+function isAadhaarField(key) {
+  const k = (key || '').toLowerCase();
+  return k.includes('aadhaar') || k.includes('aadhar') || k.includes('aadar') || k.includes('uid_number');
+}
+
+/**
+ * Detect if a field key relates to mobile/phone number
+ */
+function isMobileField(key) {
+  const k = (key || '').toLowerCase();
+  return k.includes('mobile') || k.includes('phone') || k.includes('contact_number') || k.includes('whatsapp');
+}
+
 export function DynamicFormField({
   field,
   value,
@@ -64,15 +188,19 @@ export function DynamicFormField({
 
   // Render Select / Dropdown Field
   if (field_type === 'select') {
-    const formattedOptions = Array.isArray(options)
-      ? options.map((opt) => (typeof opt === 'object' ? opt : { value: opt, label: opt }))
-      : [];
+    // Use robust option normalization (handles empty arrays, strings, objects, etc.)
+    const formattedOptions = normalizeOptions(options, field_key);
+
+    // Also check field.choices as an alternate source of options
+    const finalOptions = formattedOptions.length > 0
+      ? formattedOptions
+      : normalizeOptions(field.choices, field_key);
 
     return (
       <Select
         label={field_label}
         required={required}
-        options={formattedOptions}
+        options={finalOptions}
         placeholder={placeholder || `Select ${field_label}`}
         value={value || ''}
         onChange={(e) => onChange(field_key, e.target.value)}
@@ -234,6 +362,113 @@ export function DynamicFormField({
         {error && (
           <p className="mt-1 text-xs text-rose-600 font-medium flex items-center gap-1">
             <span>⚠️</span> {error}
+          </p>
+        )}
+      </div>
+    );
+  }
+
+  // ─── Special Formatted Fields: Aadhaar & Mobile ───
+  if (isAadhaarField(field_key)) {
+    const displayValue = formatAadhaar(value || '');
+    const rawDigits = (value || '').replace(/\D/g, '');
+    const isComplete = rawDigits.length === 12;
+
+    const handleAadhaarChange = (e) => {
+      const input = e.target.value;
+      const digits = input.replace(/\D/g, '').slice(0, 12);
+      onChange(field_key, digits);
+    };
+
+    return (
+      <div className="w-full">
+        {field_label && (
+          <label className="block text-sm font-semibold text-slate-700 mb-1.5">
+            {field_label} {required && <span className="text-rose-500">*</span>}
+          </label>
+        )}
+        <div className="relative">
+          <input
+            type="text"
+            inputMode="numeric"
+            value={displayValue}
+            onChange={handleAadhaarChange}
+            placeholder={placeholder || '1234 5678 9012'}
+            maxLength={14} /* 12 digits + 2 spaces */
+            className={`w-full rounded-lg border text-sm transition-colors py-2.5 px-3.5 focus:outline-none focus:ring-2 tracking-widest font-mono ${
+              error
+                ? 'border-rose-400 focus:border-rose-500 focus:ring-rose-200 bg-rose-50/20'
+                : 'border-slate-300 focus:border-tec-navy focus:ring-slate-200 bg-white'
+            }`}
+          />
+          {isComplete && (
+            <div className="absolute inset-y-0 right-3 flex items-center">
+              <span className="text-emerald-500 text-sm">✓</span>
+            </div>
+          )}
+        </div>
+        {error && (
+          <p className="mt-1 text-xs text-rose-600 font-medium flex items-center gap-1">
+            <span>⚠️</span> {error}
+          </p>
+        )}
+        {!error && (
+          <p className="mt-1 text-xs text-slate-500">
+            {description || 'Enter 12-digit Aadhaar number'}
+            {rawDigits.length > 0 && <span className="ml-1 font-bold text-slate-600">({rawDigits.length}/12)</span>}
+          </p>
+        )}
+      </div>
+    );
+  }
+
+  if (isMobileField(field_key)) {
+    const displayValue = formatMobile(value || '');
+    const rawDigits = (value || '').replace(/\D/g, '');
+    const isComplete = rawDigits.length === 10;
+
+    const handleMobileChange = (e) => {
+      const input = e.target.value;
+      const digits = input.replace(/\D/g, '').slice(0, 10);
+      onChange(field_key, digits);
+    };
+
+    return (
+      <div className="w-full">
+        {field_label && (
+          <label className="block text-sm font-semibold text-slate-700 mb-1.5">
+            {field_label} {required && <span className="text-rose-500">*</span>}
+          </label>
+        )}
+        <div className="relative">
+          <input
+            type="tel"
+            inputMode="numeric"
+            value={displayValue}
+            onChange={handleMobileChange}
+            placeholder={placeholder || '98765 43210'}
+            maxLength={11} /* 10 digits + 1 space */
+            className={`w-full rounded-lg border text-sm transition-colors py-2.5 px-3.5 focus:outline-none focus:ring-2 tracking-widest font-mono ${
+              error
+                ? 'border-rose-400 focus:border-rose-500 focus:ring-rose-200 bg-rose-50/20'
+                : 'border-slate-300 focus:border-tec-navy focus:ring-slate-200 bg-white'
+            }`}
+          />
+          {isComplete && (
+            <div className="absolute inset-y-0 right-3 flex items-center">
+              <span className="text-emerald-500 text-sm">✓</span>
+            </div>
+          )}
+        </div>
+        {error && (
+          <p className="mt-1 text-xs text-rose-600 font-medium flex items-center gap-1">
+            <span>⚠️</span> {error}
+          </p>
+        )}
+        {!error && (
+          <p className="mt-1 text-xs text-slate-500">
+            {description || 'Enter 10-digit mobile number'}
+            {rawDigits.length > 0 && <span className="ml-1 font-bold text-slate-600">({rawDigits.length}/10)</span>}
           </p>
         )}
       </div>

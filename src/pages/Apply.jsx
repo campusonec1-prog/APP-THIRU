@@ -249,6 +249,7 @@ export function Apply() {
     const newErrors = {};
     moduleFields.forEach((field) => {
       const val = formValues[field.field_key];
+      const key = (field.field_key || '').toLowerCase();
 
       if (field.required) {
         if (field.field_type === 'array') {
@@ -279,10 +280,27 @@ export function Apply() {
           // Ignore invalid regex
         }
       }
+
+      // Aadhaar validation: exactly 12 digits
+      if (val && typeof val === 'string' && (key.includes('aadhaar') || key.includes('aadhar') || key.includes('uid_number'))) {
+        const digits = val.replace(/\D/g, '');
+        if (digits.length > 0 && digits.length !== 12) {
+          newErrors[field.field_key] = `Aadhaar number must be exactly 12 digits (currently ${digits.length})`;
+        }
+      }
+
+      // Mobile / Phone validation: exactly 10 digits
+      if (val && typeof val === 'string' && (key.includes('mobile') || key.includes('phone') || key.includes('contact_number') || key.includes('whatsapp'))) {
+        const digits = val.replace(/\D/g, '');
+        if (digits.length > 0 && digits.length !== 10) {
+          newErrors[field.field_key] = `Mobile number must be exactly 10 digits (currently ${digits.length})`;
+        }
+      }
     });
 
     return newErrors;
   };
+
 
   // Stepper Handlers
   const handleNext = () => {
@@ -593,18 +611,26 @@ export function Apply() {
                 {modules.map((mod, idx) => {
                   const isActive = idx === currentModuleIndex;
                   const isCompleted = idx < currentModuleIndex;
+                  const isFuture = idx > currentModuleIndex;
+
+                  // Only allow navigating back to completed steps
+                  const handleStepClick = () => {
+                    if (isCompleted) {
+                      setCurrentModuleIndex(idx);
+                      window.scrollTo({ top: 0, behavior: 'instant' });
+                    }
+                  };
 
                   return (
-                    <button
+                    <div
                       key={mod.id}
-                      type="button"
-                      onClick={() => setCurrentModuleIndex(idx)}
-                      className={`w-full text-left p-3 rounded-xl transition flex items-center gap-3 cursor-pointer ${
+                      onClick={handleStepClick}
+                      className={`w-full text-left p-3 rounded-xl transition flex items-center gap-3 ${
                         isActive
                           ? 'bg-tec-navy text-white font-extrabold shadow-md'
                           : isCompleted
-                          ? 'bg-emerald-50 text-emerald-900 font-bold border border-emerald-200'
-                          : 'bg-slate-50 text-slate-700 hover:bg-slate-100 font-medium'
+                          ? 'bg-emerald-50 text-emerald-900 font-bold border border-emerald-200 cursor-pointer hover:bg-emerald-100'
+                          : 'bg-slate-50 text-slate-400 font-medium cursor-not-allowed opacity-60'
                       }`}
                     >
                       <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs shrink-0 ${
@@ -612,12 +638,12 @@ export function Apply() {
                           ? 'bg-tec-gold text-slate-950 font-black'
                           : isCompleted
                           ? 'bg-emerald-500 text-white'
-                          : 'bg-slate-200 text-slate-600 font-bold'
+                          : 'bg-slate-200 text-slate-400 font-bold'
                       }`}>
-                        {isCompleted ? '✓' : idx + 1}
+                        {isCompleted ? '✓' : isFuture ? '🔒' : idx + 1}
                       </div>
                       <span className="truncate text-xs">{mod.module_name || mod.name}</span>
-                    </button>
+                    </div>
                   );
                 })}
               </div>
