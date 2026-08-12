@@ -13,9 +13,10 @@ import { COLLEGE_CONFIG } from '../Config/collegeConfig';
 import { realtimeManager } from '../services/websocket';
 import { DynamicFormModule } from '../components/application/DynamicFormModule';
 import { ApplicationConfirmationModal } from '../components/application/ApplicationConfirmationModal';
+import { ApplicationReview } from '../components/application/ApplicationReview';
 import {
   FileText, ArrowRight, ArrowLeft, ShieldCheck,
-  Save, RotateCcw, CheckCircle2, Layers, BookOpen, AlertCircle
+  Save, RotateCcw, CheckCircle2, Layers, BookOpen, AlertCircle, Eye, Check, ClipboardList
 } from 'lucide-react';
 
 export function Apply() {
@@ -44,6 +45,7 @@ export function Apply() {
 
   // Form Navigation & Values State
   const [currentModuleIndex, setCurrentModuleIndex] = useState(0);
+  const [isReviewStep, setIsReviewStep] = useState(false);
   const [formValues, setFormValues] = useState({});
   const [errors, setErrors] = useState({});
   const [draftSavedAt, setDraftSavedAt] = useState(null);
@@ -138,8 +140,16 @@ export function Apply() {
     showToast('Program selected. Dynamic form loaded.', 'success');
   };
 
-  // Active Module & Fields memoization
-  const currentModule = modules[currentModuleIndex] || null;
+  // Active Module & Fields memoization (Hide Course Selection module when program is pre-selected)
+  const activeModules = useMemo(() => {
+    if (!selectedProgramId) return modules;
+    return modules.filter((m) => {
+      const key = (m.module_key || m.name || m.module_name || '').toLowerCase();
+      return !key.includes('course_selection') && !key.includes('course selection');
+    });
+  }, [modules, selectedProgramId]);
+
+  const currentModule = activeModules[currentModuleIndex] || null;
   const currentModuleFields = useMemo(() => {
     if (!currentModule) return [];
     return fields
@@ -244,37 +254,139 @@ export function Apply() {
     });
   };
 
-  // Validate Specific Module Fields
-  const validateModuleFields = (moduleFields) => {
+  // Validate Specific Module Fields (Highlight ONLY ONE field at a time for clean UX)
+  const validateModuleFields = (moduleFields, stopAtFirst = true) => {
     const newErrors = {};
-    moduleFields.forEach((field) => {
+    for (const field of moduleFields) {
       const val = formValues[field.field_key];
       const key = (field.field_key || '').toLowerCase();
+      let err = null;
 
       if (field.required) {
         if (field.field_type === 'array') {
-          if (!val || !Array.isArray(val) || val.length === 0) {
-            newErrors[field.field_key] = `Add at least one entry for ${field.field_label}`;
+          const isQual = field.field_key === 'qualifications' || field.field_key.includes('qualification');
+          const isPg = String(selectedDegree || '').toUpperCase() === 'PG';
+          const expectedCount = isQual ? (isPg ? 3 : 2) : 1;
+
+          if (!val || !Array.isArray(val) || val.length < expectedCount) {
+            err = `Please complete all required qualification rows in the table`;
+          } else {
+            // Validate individual rows inside the array table
+            for (let rIdx = 0; rIdx < val.length; rIdx++) {
+              const row = val[rIdx] || {};
+              const qualName = row.qualification || `Row ${rIdx + 1}`;
+
+              // All fields in qualifications table rows are strictly compulsory!
+              if (isQual) {
+                if (!row.institution || !String(row.institution).trim()) {
+                  err = `${qualName}: School / College name is required`;
+                  break;
+                }
+                if (!row.board || !String(row.board).trim()) {
+                  err = `${qualName}: Board / University name is required`;
+                  break;
+                }
+                if (!row.register_number || !String(row.register_number).trim()) {
+                  err = `${qualName}: Register Number is required`;
+                  break;
+                }
+                if (!row.year_of_passing || !String(row.year_of_passing).trim()) {
+                  err = `${qualName}: Year of Passing is required`;
+                  break;
+                }
+                if (!row.percentage || !String(row.percentage).trim()) {
+                  err = `${qualName}: Percentage is required`;
+                  break;
+                }
+              }
+
+              for (const k in row) {
+                const colKey = k.toLowerCase();
+                const v = String(row[k] || '').trim();
+
+                // Year of passing validation: 4 digits between 1950 and current year
+                if (colKey.includes('year')) {
+                  const y = parseInt(v, 10);
+                  const currentYear = new Date().getFullYear();
+                  if (!v || isNaN(y) || y < 1950 || y > currentYear || v.length !== 4) {
+                    err = `${qualName}: Year of Passing must be a valid 4-digit year (e.g. 2022)`;
+                    break;
+                  }
+                }
+
+                // Percentage validation: between 0 and 100
+                if (colKey.includes('percentage')) {
+                  const p = parseFloat(v);
+                  if (v && (isNaN(p) || p < 0 || p > 100)) {
+                    err = `${qualName}: Percentage must be between 0 and 100`;
+                    break;
+                  }
+                }
+              }
+              if (err) break;
+            }
+          }
+        }
+
+        // Academic Performance Marks Validation (HSC 3 subjects vs Semester I to VI)
+        if (field.field_key === 'academic_performance' || field.field_key.includes('performance')) {
+          const list = Array.isArray(val) ? val : [];
+          const qualList = formValues?.qualifications || [];
+          const selectedQual = qualList[1]?.qualification || (isPg ? 'UG' : 'HSC');
+          const isSemesterMode = isPg || selectedQual === 'Diploma';
+
+          if (isSemesterMode) {
+            const compulsorySemesters = ['Semester I', 'Semester II', 'Semester III', 'Semester IV', 'Semester V', 'Semester VI'];
+            for (const semLabel of compulsorySemesters) {
+              const row = list.find((r) => r.semester === semLabel || r.subject === semLabel);
+              if (!row || row.obtained_marks === undefined || row.obtained_marks === null || String(row.obtained_marks).trim() === '') {
+                err = `Academic Performance: ${semLabel} obtained marks are required`;
+                break;
+              }
+              const max = parseFloat(row.maximum_marks) || 0;
+              const obt = parseFloat(row.obtained_marks) || 0;
+              if (obt > max) {
+                err = `Academic Performance: ${semLabel} obtained marks cannot exceed maximum marks (${max})`;
+                break;
+              }
+            }
+          } else {
+            if (!list || list.length < 3) {
+              err = `Academic Performance: Please enter marks for all 3 subjects`;
+            } else {
+              for (const row of list) {
+                if (row.obtained_marks === undefined || row.obtained_marks === null || String(row.obtained_marks).trim() === '') {
+                  err = `Academic Performance: ${row.subject || 'Subject'} obtained marks are required`;
+                  break;
+                }
+                const max = parseFloat(row.maximum_marks) || 0;
+                const obt = parseFloat(row.obtained_marks) || 0;
+                if (obt > max) {
+                  err = `Academic Performance: ${row.subject || 'Subject'} obtained marks cannot exceed maximum marks (${max})`;
+                  break;
+                }
+              }
+            }
           }
         } else if (field.field_type === 'checkbox') {
           if (!val) {
-            newErrors[field.field_key] = 'Required field';
+            err = `Please check ${field.field_label}`;
           }
         } else if (field.field_type === 'file') {
           if (!val) {
-            newErrors[field.field_key] = `Document ${field.field_label} is required`;
+            err = `Document ${field.field_label} is required`;
           }
         } else if (val === undefined || val === null || val === '') {
-          newErrors[field.field_key] = `${field.field_label} is required`;
+          err = `${field.field_label} is required`;
         }
       }
 
       // Regex validation if provided
-      if (val && typeof val === 'string' && field.validation) {
+      if (!err && val && typeof val === 'string' && field.validation) {
         try {
           const regex = new RegExp(field.validation);
           if (!regex.test(val)) {
-            newErrors[field.field_key] = `Invalid format for ${field.field_label}`;
+            err = `Invalid format for ${field.field_label}`;
           }
         } catch (e) {
           // Ignore invalid regex
@@ -282,21 +394,48 @@ export function Apply() {
       }
 
       // Aadhaar validation: exactly 12 digits
-      if (val && typeof val === 'string' && (key.includes('aadhaar') || key.includes('aadhar') || key.includes('uid_number'))) {
+      if (!err && val && typeof val === 'string' && (key.includes('aadhaar') || key.includes('aadhar') || key.includes('uid_number'))) {
         const digits = val.replace(/\D/g, '');
         if (digits.length > 0 && digits.length !== 12) {
-          newErrors[field.field_key] = `Aadhaar number must be exactly 12 digits (currently ${digits.length})`;
+          err = `Aadhaar number must be exactly 12 digits (currently ${digits.length})`;
         }
       }
 
       // Mobile / Phone validation: exactly 10 digits
-      if (val && typeof val === 'string' && (key.includes('mobile') || key.includes('phone') || key.includes('contact_number') || key.includes('whatsapp'))) {
+      if (!err && val && typeof val === 'string' && (key.includes('mobile') || key.includes('phone') || key.includes('contact_number') || key.includes('whatsapp'))) {
         const digits = val.replace(/\D/g, '');
         if (digits.length > 0 && digits.length !== 10) {
-          newErrors[field.field_key] = `Mobile number must be exactly 10 digits (currently ${digits.length})`;
+          err = `Mobile number must be exactly 10 digits (currently ${digits.length})`;
         }
       }
-    });
+
+      // Pincode validation: exactly 6 digits
+      if (!err && val && typeof val === 'string' && (key.includes('pincode') || key.includes('pin_code') || key.includes('zipcode'))) {
+        const digits = val.replace(/\D/g, '');
+        if (digits.length > 0 && digits.length !== 6) {
+          err = `Pincode must be exactly 6 digits (currently ${digits.length})`;
+        }
+      }
+
+      // Date of Birth / Date validation: realistic 4-digit year between 1950 and current year
+      if (!err && val && typeof val === 'string' && (field.field_type === 'date' || key.includes('date') || key.includes('dob') || key.includes('birth'))) {
+        const dateParts = val.split('-');
+        const year = parseInt(dateParts[0], 10);
+        const currentYear = new Date().getFullYear();
+        if (isNaN(year) || year < 1950 || year > currentYear) {
+          err = `Please enter a valid ${field.field_label} (year must be between 1950 and ${currentYear})`;
+        } else if (key.includes('birth') || key.includes('dob')) {
+          if (year > currentYear - 10) {
+            err = `Date of Birth year must be 2014 or earlier`;
+          }
+        }
+      }
+
+      if (err) {
+        newErrors[field.field_key] = err;
+        if (stopAtFirst) break;
+      }
+    }
 
     return newErrors;
   };
@@ -304,50 +443,47 @@ export function Apply() {
 
   // Stepper Handlers
   const handleNext = () => {
-    const moduleErrors = validateModuleFields(currentModuleFields);
+    const moduleErrors = validateModuleFields(currentModuleFields, true);
     if (Object.keys(moduleErrors).length === 0) {
-      if (currentModuleIndex < modules.length - 1) {
+      setErrors({});
+      if (currentModuleIndex < activeModules.length - 1) {
         setCurrentModuleIndex((prev) => prev + 1);
         window.scrollTo({ top: 0, behavior: 'instant' });
+      } else {
+        handleProceedToReview();
       }
     } else {
       setErrors(moduleErrors);
-      showToast('Please complete all required fields before continuing.', 'error');
+      const firstErrorMsg = Object.values(moduleErrors)[0];
+      showToast(firstErrorMsg, 'error');
     }
   };
 
   const handleBack = () => {
+    setErrors({});
     if (currentModuleIndex > 0) {
       setCurrentModuleIndex((prev) => prev - 1);
       window.scrollTo({ top: 0, behavior: 'instant' });
     }
   };
 
-  // TWO-STAGE SUBMISSION HANDLER
-  const handleSubmitForm = async (e) => {
-    e.preventDefault();
+  // Validate all modules and transition to Review Screen (checks section by section, one field at a time)
+  const handleProceedToReview = (e) => {
+    if (e) e.preventDefault();
 
-    // Stage 1: Validate ALL fields across ALL modules
-    let allErrors = {};
-    modules.forEach((mod) => {
+    for (let i = 0; i < activeModules.length; i++) {
+      const mod = activeModules[i];
       const modFields = fields.filter((f) => f.form_module_id === mod.id);
-      const modErrors = validateModuleFields(modFields);
-      allErrors = { ...allErrors, ...modErrors };
-    });
-
-    if (Object.keys(allErrors).length > 0) {
-      setErrors(allErrors);
-      showToast('Please fix the highlighted required fields before submitting.', 'error');
-      // Jump to first module containing an error
-      const firstErrorKey = Object.keys(allErrors)[0];
-      const errorField = fields.find((f) => f.field_key === firstErrorKey);
-      if (errorField) {
-        const errorModIndex = modules.findIndex((m) => m.id === errorField.form_module_id);
-        if (errorModIndex !== -1) {
-          setCurrentModuleIndex(errorModIndex);
-        }
+      const modErrors = validateModuleFields(modFields, true);
+      if (Object.keys(modErrors).length > 0) {
+        setCurrentModuleIndex(i);
+        setIsReviewStep(false);
+        setErrors(modErrors);
+        const firstErrorMsg = Object.values(modErrors)[0];
+        showToast(firstErrorMsg, 'error');
+        window.scrollTo({ top: 0, behavior: 'instant' });
+        return;
       }
-      return;
     }
 
     if (!selectedProgramId) {
@@ -355,11 +491,18 @@ export function Apply() {
       return;
     }
 
+    setErrors({});
+    setIsReviewStep(true);
+    window.scrollTo({ top: 0, behavior: 'instant' });
+  };
+
+  // FINAL SUBMISSION HANDLER (Triggered ONLY from ApplicationReview confirmation)
+  const executeFinalSubmission = async () => {
     setSubmitting(true);
     let updatedValues = { ...formValues };
 
     try {
-      // Stage 2: Identify and Upload Files (POST /api/documents/upload)
+      // Stage 1: Identify and Upload Files (POST /api/documents/upload)
       const fileKeysToUpload = [];
       const formData = new FormData();
       formData.append('docType', 'application_documents');
@@ -377,22 +520,22 @@ export function Apply() {
       });
 
       if (fileKeysToUpload.length > 0) {
-        showToast(`Uploading ${fileKeysToUpload.length} document file(s)...`, 'info');
+        showToast(`Uploading ${fileKeysToUpload.length} document file(s) to R2 storage...`, 'info');
         
-        // Execute Document Upload
+        // Execute Document Upload to Cloudflare R2
         const uploadRes = await uploadDocuments(formData, (percent) => {
           const progressObj = {};
           fileKeysToUpload.forEach((item) => { progressObj[item.key] = percent; });
           setUploadProgressMap(progressObj);
         });
 
-        // Parse returned file URLs
+        // Parse returned Cloudflare R2 file URLs
         const uploadedList = Array.isArray(uploadRes?.data) ? uploadRes.data : (uploadRes?.data?.files || []);
         let hasFailedFile = false;
         
         fileKeysToUpload.forEach((item, idx) => {
           const returnedItem = uploadedList.find((u) => u.file_name === item.file.name) || uploadedList[idx];
-          const fileUrl = returnedItem?.file_url || returnedItem?.url;
+          const fileUrl = returnedItem?.file_url || returnedItem?.url || returnedItem?.path;
           if (fileUrl) {
             updatedValues[item.key] = fileUrl;
           } else {
@@ -405,10 +548,10 @@ export function Apply() {
         }
 
         setFormValues(updatedValues);
-        showToast('All documents uploaded successfully!', 'success');
+        showToast('All documents uploaded to Cloudflare R2 successfully!', 'success');
       }
 
-      // Stage 3: Construct Dynamic form_data Grouped by module_key & Create Application
+      // Stage 2: Construct Dynamic form_data Grouped by module_key & Create Application
       const nestedFormData = {};
       modules.forEach((mod) => {
         const mKey = mod.module_key || mod.name?.toLowerCase().replace(/\s+/g, '_') || `module_${mod.id}`;
@@ -420,6 +563,15 @@ export function Apply() {
           }
         });
       });
+
+      // Auto-fill course_selection from pre-selected program & department
+      if (selectedProgramId) {
+        nestedFormData.course_selection = {
+          program: selectedDegree || 'UG',
+          department: selectedDepartmentName || '',
+          ...nestedFormData.course_selection,
+        };
+      }
 
       const payload = {
         program_id: Number(selectedProgramId),
@@ -587,7 +739,7 @@ export function Apply() {
                 <div>
                   <h3 className="text-base font-extrabold text-slate-900">Form Sections</h3>
                   <p className="text-xs text-slate-500 font-medium mt-0.5">
-                    Step {currentModuleIndex + 1} of {modules.length}
+                    Step {currentModuleIndex + 1} of {activeModules.length}
                   </p>
                 </div>
                 <div className="text-right">
@@ -608,15 +760,14 @@ export function Apply() {
 
               {/* Module Nav Items */}
               <div className="px-5 py-3 space-y-2 max-h-[calc(100vh-14rem)] overflow-y-auto">
-                {modules.map((mod, idx) => {
-                  const isActive = idx === currentModuleIndex;
-                  const isCompleted = idx < currentModuleIndex;
-                  const isFuture = idx > currentModuleIndex;
+                {activeModules.map((mod, idx) => {
+                  const isActive = !isReviewStep && idx === currentModuleIndex;
+                  const isCompleted = idx < currentModuleIndex || isReviewStep;
 
-                  // Only allow navigating back to completed steps
                   const handleStepClick = () => {
-                    if (isCompleted) {
+                    if (isCompleted || isReviewStep) {
                       setCurrentModuleIndex(idx);
+                      setIsReviewStep(false);
                       window.scrollTo({ top: 0, behavior: 'instant' });
                     }
                   };
@@ -640,12 +791,29 @@ export function Apply() {
                           ? 'bg-emerald-500 text-white'
                           : 'bg-slate-200 text-slate-400 font-bold'
                       }`}>
-                        {isCompleted ? '✓' : isFuture ? '🔒' : idx + 1}
+                        {isCompleted ? <Check className="w-3.5 h-3.5" /> : idx + 1}
                       </div>
                       <span className="truncate text-xs">{mod.module_name || mod.name}</span>
                     </div>
                   );
                 })}
+
+                {/* Review Step Nav Item */}
+                <div
+                  onClick={handleProceedToReview}
+                  className={`w-full text-left p-3 rounded-xl transition flex items-center gap-3 border ${
+                    isReviewStep
+                      ? 'bg-tec-navy text-white font-extrabold shadow-md border-tec-navy'
+                      : 'bg-amber-50/60 text-amber-900 font-bold border-amber-200 cursor-pointer hover:bg-amber-100'
+                  }`}
+                >
+                  <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs shrink-0 ${
+                    isReviewStep ? 'bg-tec-gold text-slate-950 font-black' : 'bg-amber-400 text-slate-950 font-bold'
+                  }`}>
+                    <ClipboardList className="w-3.5 h-3.5" />
+                  </div>
+                  <span className="truncate text-xs">Review &amp; Submit</span>
+                </div>
               </div>
             </div>
           </div>
@@ -653,9 +821,27 @@ export function Apply() {
           {/* Right Main Form Container */}
           <div className="flex-grow space-y-6">
             
-            {/* Active Module Renderer */}
-            {currentModule ? (
-              <form onSubmit={handleSubmitForm} className="space-y-6">
+            {/* Review Step Renderer */}
+            {isReviewStep ? (
+              <ApplicationReview
+                modules={activeModules}
+                fields={fields}
+                formValues={formValues}
+                selectedProgramName={selectedDepartmentName}
+                onEditModule={(modIdx) => {
+                  setCurrentModuleIndex(modIdx);
+                  setIsReviewStep(false);
+                  window.scrollTo({ top: 0, behavior: 'instant' });
+                }}
+                onBackToForm={() => {
+                  setIsReviewStep(false);
+                  window.scrollTo({ top: 0, behavior: 'instant' });
+                }}
+                onConfirmSubmit={executeFinalSubmission}
+                submitting={submitting}
+              />
+            ) : currentModule ? (
+              <form onSubmit={handleProceedToReview} className="space-y-6">
                 <DynamicFormModule
                   module={currentModule}
                   fields={currentModuleFields}
@@ -666,9 +852,10 @@ export function Apply() {
                   onAddArrayRow={handleAddArrayRow}
                   onRemoveArrayRow={handleRemoveArrayRow}
                   onArrayRowChange={handleArrayRowChange}
+                  programLevel={selectedDegree || 'UG'}
                 />
 
-                {/* Module Navigation & Submit Buttons */}
+                {/* Module Navigation & Review Buttons */}
                 <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 flex items-center justify-between gap-4">
                   <button
                     type="button"
@@ -696,20 +883,10 @@ export function Apply() {
                   ) : (
                     <button
                       type="submit"
-                      disabled={submitting}
                       className="px-8 py-3 rounded-xl bg-tec-gold hover:bg-tec-gold-hover text-slate-950 font-black text-sm flex items-center gap-2 shadow-lg transition cursor-pointer border border-amber-300"
                     >
-                      {submitting ? (
-                        <>
-                          <div className="w-4 h-4 border-2 border-slate-950 border-t-transparent rounded-full animate-spin" />
-                          <span>Submitting Application...</span>
-                        </>
-                      ) : (
-                        <>
-                          <CheckCircle2 className="w-5 h-5 text-slate-950" />
-                          <span>Submit Application</span>
-                        </>
-                      )}
+                      <Eye className="w-5 h-5 text-slate-950" />
+                      <span>Review Application</span>
                     </button>
                   )}
                 </div>

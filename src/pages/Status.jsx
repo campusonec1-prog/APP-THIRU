@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, Navigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { getDepartmentsList, getProgramsList } from '../Api';
 import { COLLEGE_CONFIG } from '../Config/collegeConfig';
@@ -11,6 +11,10 @@ import {
 export function Status() {
   const { user, application, refreshApplicationStatus, academicYear } = useAuth();
   const navigate = useNavigate();
+
+  if (!user) {
+    return <Navigate to="/login" replace />;
+  }
 
   // Courses State (mirroring Home.jsx)
   const [activeTab, setActiveTab] = useState('UG');
@@ -165,7 +169,7 @@ export function Status() {
                       <span className={`text-xs font-extrabold px-3 py-1 rounded-full ${
                         application.feePaid ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
                       }`}>
-                        {application.feePaid ? '✓ Fee Paid (₹500)' : '⚠ Fee Pending'}
+                        {application.feePaid ? 'Fee Paid (₹500)' : 'Fee Pending'}
                       </span>
                     </div>
                   </div>

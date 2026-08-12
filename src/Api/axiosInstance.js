@@ -66,6 +66,16 @@ axiosInstance.interceptors.response.use(
       clearTimeout(error.config.metadata.timer);
     }
     notifyColdStart(false);
+
+    // Evict invalid/expired token on 401 Unauthorized
+    if (error.response?.status === 401) {
+      try {
+        localStorage.removeItem('tec_user');
+      } catch (e) {
+        // Ignore localStorage error
+      }
+    }
+
     return Promise.reject(error);
   }
 );

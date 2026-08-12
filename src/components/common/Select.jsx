@@ -38,8 +38,8 @@ export const Select = React.forwardRef(({
         })}
       </select>
       {error && (
-        <p className="mt-1 text-xs text-rose-600 font-medium flex items-center gap-1">
-          <span>⚠️</span> {error.message || error}
+        <p className="mt-1 text-xs text-rose-600 font-medium">
+          {error.message || error}
         </p>
       )}
       {!error && helperText && (

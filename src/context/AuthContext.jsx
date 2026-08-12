@@ -10,8 +10,31 @@ import { realtimeManager } from '../services/websocket';
 
 const AuthContext = createContext();
 
+const OBSOLETE_KEYS = [
+  'tec_mock_db',
+  'tec_ims_token',
+  'tec_ims_user',
+  'tec_ims_role',
+  'tec_application',
+  'tec_role',
+  'tec_token',
+];
+
+function purgeObsoleteLocalStorage() {
+  try {
+    OBSOLETE_KEYS.forEach((key) => {
+      if (localStorage.getItem(key) !== null) {
+        localStorage.removeItem(key);
+      }
+    });
+  } catch (e) {
+    console.error('Failed to purge obsolete localStorage keys:', e);
+  }
+}
+
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(() => {
+    purgeObsoleteLocalStorage();
     try {
       const stored = localStorage.getItem('tec_user');
       if (!stored) return null;
@@ -32,8 +55,9 @@ export function AuthProvider({ children }) {
   const [academicYearObj, setAcademicYearObj] = useState(null);
   const [academicYear, setAcademicYear] = useState('2026-2027');
 
-  // Subscribe to Axios cold start status notifications
+  // Subscribe to Axios cold start status notifications & purge obsolete keys
   useEffect(() => {
+    purgeObsoleteLocalStorage();
     const unsubscribe = subscribeColdStart((wakingUp) => {
       setIsServerWakingUp(wakingUp);
     });
@@ -108,6 +132,8 @@ export function AuthProvider({ children }) {
 
   const logout = () => {
     localStorage.removeItem('tec_user');
+    localStorage.removeItem('tec_application_draft');
+    purgeObsoleteLocalStorage();
     setUser(null);
     setApplication(null);
     showToast('Logged out of application portal.', 'info');
@@ -135,7 +161,7 @@ export function AuthProvider({ children }) {
         <div className="fixed bottom-4 left-1/2 transform -translate-x-1/2 z-50 transition-all ease-out duration-300">
           <div className="px-5 py-3 rounded-2xl bg-amber-500 text-slate-950 font-extrabold text-xs sm:text-sm flex items-center gap-3 shadow-2xl border-2 border-amber-300 animate-pulse">
             <div className="w-3 h-3 rounded-full bg-slate-950 animate-ping" />
-            <span>⚡ Waking up the server... Please hold tight, processing your request!</span>
+            <span>Waking up the server... Please hold tight, processing your request!</span>
           </div>
         </div>
       )}

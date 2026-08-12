@@ -10,7 +10,8 @@ export function DynamicFormModule({
   onChange,
   onAddArrayRow,
   onRemoveArrayRow,
-  onArrayRowChange
+  onArrayRowChange,
+  programLevel = 'UG'
 }) {
   if (!module) return null;
 
@@ -58,6 +59,8 @@ export function DynamicFormModule({
                   onAddArrayRow={onAddArrayRow}
                   onRemoveArrayRow={onRemoveArrayRow}
                   onArrayRowChange={onArrayRowChange}
+                  programLevel={programLevel}
+                  formValues={formValues}
                 />
               </div>
             );

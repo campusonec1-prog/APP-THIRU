@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Navigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { initiatePayment } from '../Api';
 import { Button } from '../components/common/Button';
@@ -7,12 +7,16 @@ import { ShieldCheck, CreditCard, QrCode, Building, CheckCircle2, ArrowRight } f
 import emblemPng from '../assets/emblem.png';
 
 export function Payment() {
-  const { application, refreshApplicationStatus, showToast } = useAuth();
+  const { user, application, refreshApplicationStatus, showToast } = useAuth();
   const [method, setMethod] = useState('UPI'); // 'UPI' | 'CARD' | 'NETBANKING'
   const [upiId, setUpiId] = useState('user@okaxis');
   const [isProcessing, setIsProcessing] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
   const navigate = useNavigate();
+
+  if (!user) {
+    return <Navigate to="/login" replace />;
+  }
 
   useEffect(() => {
     refreshApplicationStatus();
