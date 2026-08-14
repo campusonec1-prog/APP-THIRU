@@ -5,7 +5,7 @@ import { axiosInstance } from './axiosInstance';
  * GET /institution/departments/list
  */
 export async function getDepartmentsList() {
-  const response = await axiosInstance.get('/institution/departments/list');
+  const response = await axiosInstance.get('/institution/departments/list?is_display=true&pagination=false');
   return response.data?.data || response.data;
 }
 
@@ -14,7 +14,7 @@ export async function getDepartmentsList() {
  * GET /institution/programs/list
  */
 export async function getProgramsList() {
-  const response = await axiosInstance.get('/institution/programs/list');
+  const response = await axiosInstance.get('/institution/programs/list?pagination=false');
   return response.data?.data || response.data;
 }
 
