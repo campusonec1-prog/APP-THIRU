@@ -110,6 +110,24 @@ export function Apply() {
           setSelectedProgramId(matchedDept.program_id);
         }
       }
+
+      if (selectedProgramId) {
+        if (rawProgs.length > 0) {
+          const matchedProg = rawProgs.find((p) => Number(p.id) === Number(selectedProgramId));
+          if (matchedProg) {
+            const level = matchedProg.program_level || matchedProg.degree || matchedProg.level;
+            if (level) setSelectedDegree(level);
+            const deptName = matchedProg.department_name || matchedProg.program_name || matchedProg.name || matchedProg.department;
+            if (deptName) setSelectedDepartmentName(deptName);
+          }
+        }
+        if (rawDepts.length > 0) {
+          const matchedDept = rawDepts.find((d) => Number(d.program_id) === Number(selectedProgramId));
+          if (matchedDept && matchedDept.department_name) {
+            setSelectedDepartmentName(matchedDept.department_name);
+          }
+        }
+      }
     } catch (err) {
       console.error('Failed to load application schema:', err);
       showToast('Failed to load application form schema.', 'error');
@@ -263,7 +281,53 @@ export function Apply() {
       let err = null;
 
       if (field.required) {
-        if (field.field_type === 'array') {
+        // Academic Performance Marks Validation (HSC 3 subjects vs Semester I to VI)
+        if (field.field_key === 'academic_performance' || field.field_key.includes('performance')) {
+          err = null;
+          const list = Array.isArray(val) ? val : [];
+          const qualList = formValues?.qualifications || formValues?.academic_qualification || [];
+          const isPg = String(selectedDegree || '').toUpperCase() === 'PG';
+          const selectedQualRow = qualList[1]?.qualification || (isPg ? 'UG' : 'HSC');
+          const isDiploma = selectedQualRow === 'Diploma';
+          const isUgDegree = selectedQualRow === 'UG' || qualList[2]?.qualification === 'UG';
+          const isSemesterMode = isPg || isDiploma || isUgDegree;
+
+          if (isSemesterMode) {
+            const compulsorySemesters = ['Semester I', 'Semester II', 'Semester III', 'Semester IV', 'Semester V', 'Semester VI'];
+            for (const semLabel of compulsorySemesters) {
+              const row = list.find((r) => r.semester === semLabel || r.subject === semLabel);
+              if (!row || row.obtained_marks === undefined || row.obtained_marks === null || String(row.obtained_marks).trim() === '') {
+                err = `Academic Performance: ${semLabel} obtained marks are required`;
+                break;
+              }
+              const max = parseFloat(row.maximum_marks) || 0;
+              const obt = parseFloat(row.obtained_marks) || 0;
+              if (obt > max) {
+                err = `Academic Performance: ${semLabel} obtained marks cannot exceed maximum marks (${max})`;
+                break;
+              }
+            }
+          } else {
+            // HSC Mode: Check that all 3 active subjects have valid obtained_marks
+            const validRows = list.filter((r) => r.subject && String(r.subject).trim() !== '');
+            if (validRows.length < 3) {
+              err = `Academic Performance: Please enter marks for all 3 subjects`;
+            } else {
+              for (const row of validRows) {
+                if (row.obtained_marks === undefined || row.obtained_marks === null || String(row.obtained_marks).trim() === '') {
+                  err = `Academic Performance: ${row.subject || 'Subject'} obtained marks are required`;
+                  break;
+                }
+                const max = parseFloat(row.maximum_marks) || 100;
+                const obt = parseFloat(row.obtained_marks) || 0;
+                if (obt > max) {
+                  err = `Academic Performance: ${row.subject || 'Subject'} obtained marks cannot exceed maximum marks (${max})`;
+                  break;
+                }
+              }
+            }
+          }
+        } else if (field.field_type === 'array') {
           const isQual = field.field_key === 'qualifications' || field.field_key.includes('qualification');
           const isPg = String(selectedDegree || '').toUpperCase() === 'PG';
           const expectedCount = isQual ? (isPg ? 3 : 2) : 1;
@@ -326,45 +390,26 @@ export function Apply() {
               if (err) break;
             }
           }
-        }
-
-        // Academic Performance Marks Validation (HSC 3 subjects vs Semester I to VI)
-        if (field.field_key === 'academic_performance' || field.field_key.includes('performance')) {
+        } else if (field.field_key === 'certificates' || field.field_key.includes('certificate')) {
+          err = null;
           const list = Array.isArray(val) ? val : [];
-          const qualList = formValues?.qualifications || [];
-          const selectedQual = qualList[1]?.qualification || (isPg ? 'UG' : 'HSC');
-          const isSemesterMode = isPg || selectedQual === 'Diploma';
+          const qualList = formValues?.qualifications || formValues?.academic_qualification || [];
+          const isPg = String(selectedDegree || '').toUpperCase() === 'PG';
+          const selectedQualRow = qualList[1]?.qualification || (isPg ? 'UG' : 'HSC');
+          const isDiploma = selectedQualRow === 'Diploma';
+          const isUgDegree = selectedQualRow === 'UG' || qualList[2]?.qualification === 'UG';
+          const isPgOrDiploma = isPg || isDiploma || isUgDegree;
+          const compulsoryCount = isPgOrDiploma ? 6 : 5;
 
-          if (isSemesterMode) {
-            const compulsorySemesters = ['Semester I', 'Semester II', 'Semester III', 'Semester IV', 'Semester V', 'Semester VI'];
-            for (const semLabel of compulsorySemesters) {
-              const row = list.find((r) => r.semester === semLabel || r.subject === semLabel);
-              if (!row || row.obtained_marks === undefined || row.obtained_marks === null || String(row.obtained_marks).trim() === '') {
-                err = `Academic Performance: ${semLabel} obtained marks are required`;
-                break;
-              }
-              const max = parseFloat(row.maximum_marks) || 0;
-              const obt = parseFloat(row.obtained_marks) || 0;
-              if (obt > max) {
-                err = `Academic Performance: ${semLabel} obtained marks cannot exceed maximum marks (${max})`;
-                break;
-              }
-            }
+          if (!list || list.length < compulsoryCount) {
+            err = `Certificates: Please upload all ${compulsoryCount} required certificates`;
           } else {
-            if (!list || list.length < 3) {
-              err = `Academic Performance: Please enter marks for all 3 subjects`;
-            } else {
-              for (const row of list) {
-                if (row.obtained_marks === undefined || row.obtained_marks === null || String(row.obtained_marks).trim() === '') {
-                  err = `Academic Performance: ${row.subject || 'Subject'} obtained marks are required`;
-                  break;
-                }
-                const max = parseFloat(row.maximum_marks) || 0;
-                const obt = parseFloat(row.obtained_marks) || 0;
-                if (obt > max) {
-                  err = `Academic Performance: ${row.subject || 'Subject'} obtained marks cannot exceed maximum marks (${max})`;
-                  break;
-                }
+            for (let cIdx = 0; cIdx < compulsoryCount; cIdx++) {
+              const row = list[cIdx] || {};
+              const certName = row.certificate_type || `Certificate ${cIdx + 1}`;
+              if (!row.document || String(row.document).trim() === '') {
+                err = `Certificates: Upload file for ${certName} is required`;
+                break;
               }
             }
           }
@@ -442,13 +487,15 @@ export function Apply() {
 
 
   // Stepper Handlers
-  const handleNext = () => {
+  const handleNext = (e) => {
+    if (e && e.preventDefault) e.preventDefault();
     const moduleErrors = validateModuleFields(currentModuleFields, true);
+    console.log('[DEBUG handleNext] currentModuleIndex:', currentModuleIndex, 'activeModules.length:', activeModules.length, 'moduleErrors:', moduleErrors, 'formValues:', formValues);
     if (Object.keys(moduleErrors).length === 0) {
       setErrors({});
       if (currentModuleIndex < activeModules.length - 1) {
         setCurrentModuleIndex((prev) => prev + 1);
-        window.scrollTo({ top: 0, behavior: 'instant' });
+        window.scrollTo({ top: 0, behavior: 'auto' });
       } else {
         handleProceedToReview();
       }
@@ -463,7 +510,7 @@ export function Apply() {
     setErrors({});
     if (currentModuleIndex > 0) {
       setCurrentModuleIndex((prev) => prev - 1);
-      window.scrollTo({ top: 0, behavior: 'instant' });
+      window.scrollTo({ top: 0, behavior: 'auto' });
     }
   };
 
@@ -493,7 +540,7 @@ export function Apply() {
 
     setErrors({});
     setIsReviewStep(true);
-    window.scrollTo({ top: 0, behavior: 'instant' });
+    window.scrollTo({ top: 0, behavior: 'auto' });
   };
 
   // FINAL SUBMISSION HANDLER (Triggered ONLY from ApplicationReview confirmation)
@@ -566,9 +613,22 @@ export function Apply() {
 
       // Auto-fill course_selection from pre-selected program & department
       if (selectedProgramId) {
+        let finalDeptName = selectedDepartmentName;
+        if (!finalDeptName && programs.length > 0) {
+          const matchedProg = programs.find((p) => Number(p.id) === Number(selectedProgramId));
+          finalDeptName = matchedProg?.department_name || matchedProg?.program_name || matchedProg?.name || matchedProg?.department;
+        }
+        if (!finalDeptName && departments.length > 0) {
+          const matchedDept = departments.find((d) => Number(d.program_id) === Number(selectedProgramId));
+          finalDeptName = matchedDept?.department_name || matchedDept?.name;
+        }
+        if (!finalDeptName) {
+          finalDeptName = Number(selectedProgramId) === 2 ? 'Civil Engineering' : 'Engineering';
+        }
+
         nestedFormData.course_selection = {
           program: selectedDegree || 'UG',
-          department: selectedDepartmentName || '',
+          department: finalDeptName,
           ...nestedFormData.course_selection,
         };
       }
@@ -831,17 +891,17 @@ export function Apply() {
                 onEditModule={(modIdx) => {
                   setCurrentModuleIndex(modIdx);
                   setIsReviewStep(false);
-                  window.scrollTo({ top: 0, behavior: 'instant' });
+                  window.scrollTo({ top: 0, behavior: 'auto' });
                 }}
                 onBackToForm={() => {
                   setIsReviewStep(false);
-                  window.scrollTo({ top: 0, behavior: 'instant' });
+                  window.scrollTo({ top: 0, behavior: 'auto' });
                 }}
                 onConfirmSubmit={executeFinalSubmission}
                 submitting={submitting}
               />
             ) : currentModule ? (
-              <form onSubmit={handleProceedToReview} className="space-y-6">
+              <form onSubmit={(e) => { e.preventDefault(); handleNext(e); }} className="space-y-6">
                 <DynamicFormModule
                   module={currentModule}
                   fields={currentModuleFields}
@@ -871,7 +931,7 @@ export function Apply() {
                     <span>Previous Section</span>
                   </button>
 
-                  {currentModuleIndex < modules.length - 1 ? (
+                  {currentModuleIndex < activeModules.length - 1 ? (
                     <button
                       type="button"
                       onClick={handleNext}
