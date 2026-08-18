@@ -72,27 +72,19 @@ export function ApplicationConfirmationModal({
 
         {/* Notice text */}
         <p className="text-xs text-slate-500 max-w-sm mx-auto">
-          Please keep your application number safe for future reference. Next step is completing your application fee payment.
+          Please keep your application number safe for future reference. You can track your admission status from your profile.
         </p>
 
         {/* CTAs */}
-        <div className="flex flex-col sm:flex-row items-center gap-3">
-          <button
-            type="button"
-            onClick={() => navigate('/payment')}
-            className="w-full py-3.5 px-6 rounded-xl bg-tec-gold hover:bg-tec-gold-hover text-slate-950 font-extrabold text-sm flex items-center justify-center gap-2 shadow-lg transition cursor-pointer border border-amber-300"
-          >
-            <span>Proceed to Fee Payment</span>
-            <ArrowRight className="w-4 h-4" />
-          </button>
-          
+        <div className="pt-2">
           <button
             type="button"
             onClick={() => navigate('/profile')}
-            className="w-full py-3.5 px-6 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-extrabold text-sm flex items-center justify-center gap-2 transition cursor-pointer border border-slate-200"
+            className="w-full py-3.5 px-6 rounded-xl bg-tec-navy hover:bg-tec-navy-dark text-white font-extrabold text-sm flex items-center justify-center gap-2 shadow-lg transition cursor-pointer"
           >
             <FileText className="w-4 h-4" />
             <span>View My Profile</span>
+            <ArrowRight className="w-4 h-4" />
           </button>
         </div>
       </div>

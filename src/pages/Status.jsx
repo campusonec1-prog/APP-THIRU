@@ -165,22 +165,7 @@ export function Status() {
                         {application.status || 'Pending'}
                       </span>
                     </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Payment</span>
-                      <span className={`text-xs font-extrabold px-3 py-1 rounded-full ${
-                        application.feePaid ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
-                      }`}>
-                        {application.feePaid ? 'Fee Paid (₹500)' : 'Fee Pending'}
-                      </span>
-                    </div>
                   </div>
-                  <Link
-                    to="/payment"
-                    className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-tec-gold hover:bg-tec-gold-hover text-slate-950 font-bold text-sm transition shadow-md"
-                  >
-                    View Full Application
-                    <ArrowRight className="w-4 h-4" />
-                  </Link>
                 </div>
               ) : (
                 /* No application yet */

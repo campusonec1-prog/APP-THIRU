@@ -107,6 +107,10 @@ function findParentValue(fieldKey, choices, formValues) {
     const candidateKey = currentPrefix + base;
     const candidateVal = formValues[candidateKey];
     if (candidateVal) {
+      const lowerRawVal = String(candidateVal).trim().toLowerCase();
+      if (possibleParentKeys.includes(lowerRawVal)) {
+        return keyMap[lowerRawVal];
+      }
       const normalized = normalizeStateValue(candidateVal);
       const lowerVal = String(normalized).toLowerCase();
       if (possibleParentKeys.includes(lowerVal)) {
@@ -121,9 +125,8 @@ function findParentValue(fieldKey, choices, formValues) {
   for (const fKey of Object.keys(formValues)) {
     const val = String(formValues[fKey] || '');
     if (val) {
-      const normalized = normalizeStateValue(val);
-      const lowerVal = normalized.toLowerCase();
-      if (possibleParentKeys.includes(lowerVal)) {
+      const lowerRawVal = String(val).trim().toLowerCase();
+      if (possibleParentKeys.includes(lowerRawVal)) {
         let score = 0;
         if (currentPrefix && fKey.startsWith(currentPrefix)) score += 10;
         if (fKey.toLowerCase().includes('state')) score += 5;
@@ -131,7 +134,21 @@ function findParentValue(fieldKey, choices, formValues) {
         
         if (score > highestScore) {
           highestScore = score;
-          bestMatchVal = keyMap[lowerVal];
+          bestMatchVal = keyMap[lowerRawVal];
+        }
+      } else {
+        const normalized = normalizeStateValue(val);
+        const lowerVal = normalized.toLowerCase();
+        if (possibleParentKeys.includes(lowerVal)) {
+          let score = 0;
+          if (currentPrefix && fKey.startsWith(currentPrefix)) score += 10;
+          if (fKey.toLowerCase().includes('state')) score += 5;
+          if (fKey.toLowerCase() === 'state') score += 8;
+          
+          if (score > highestScore) {
+            highestScore = score;
+            bestMatchVal = keyMap[lowerVal];
+          }
         }
       }
     }
@@ -162,6 +179,16 @@ export function DynamicFormField({
     description = '',
     columns = []
   } = field;
+
+  // Auto-fill today's date if not set for application_date
+  React.useEffect(() => {
+    const isAppDate = field_key === 'application_date';
+    const isDateField = field_type === 'date' || (field_key || '').toLowerCase().includes('date');
+    if (isDateField && isAppDate && !value) {
+      const todayStr = new Date().toLocaleDateString('en-CA'); // 'YYYY-MM-DD' format matching client timezone
+      onChange(field_key, todayStr);
+    }
+  }, [field_type, field_key, value, onChange]);
 
   const isDependent = field.choices && !Array.isArray(field.choices) && typeof field.choices === 'object';
   const parentVal = React.useMemo(() => {
@@ -678,19 +705,23 @@ export function DynamicFormField({
   // Date Field with realistic min/max year bounds
   if (field_type === 'date' || (field_key || '').toLowerCase().includes('date')) {
     const isDob = (field_key || '').toLowerCase().includes('birth') || (field_key || '').toLowerCase().includes('dob');
-    const maxDate = isDob ? '2014-12-31' : new Date().toISOString().split('T')[0];
+    const isAppDate = field_key === 'application_date';
+    const maxDate = isDob ? '2014-12-31' : new Date().toLocaleDateString('en-CA');
+    const defaultVal = isAppDate ? (value || new Date().toLocaleDateString('en-CA')) : (value || '');
+
     return (
       <Input
         label={field_label}
         type="date"
         required={required}
         placeholder={placeholder || `Select ${field_label}`}
-        value={value || ''}
+        value={defaultVal}
         max={maxDate}
         min="1950-01-01"
         onChange={(e) => onChange(field_key, e.target.value)}
         error={error}
         helperText={description || (isDob ? 'Select a valid Date of Birth' : '')}
+        disabled={isAppDate}
       />
     );
   }
@@ -829,9 +860,21 @@ function AcademicPerformanceRenderer({ field_label, required, value, onChange, e
       rowIdx = list.length - 1;
     }
 
-    const updatedRow = { ...list[rowIdx], qualification: 'HSC', subject, [fieldName]: val };
-    const max = parseFloat(fieldName === 'maximum_marks' ? val : updatedRow.maximum_marks) || 0;
-    const obt = parseFloat(fieldName === 'obtained_marks' ? val : updatedRow.obtained_marks) || 0;
+    let cleanVal = val;
+    if (fieldName === 'obtained_marks') {
+      const num = parseFloat(val);
+      if (!isNaN(num)) {
+        if (num < 0) cleanVal = '0';
+        if (num > 100) cleanVal = '100';
+      }
+    }
+    if (fieldName === 'maximum_marks') {
+      cleanVal = '100';
+    }
+
+    const updatedRow = { ...list[rowIdx], qualification: 'HSC', subject, [fieldName]: cleanVal };
+    const max = parseFloat(fieldName === 'maximum_marks' ? cleanVal : updatedRow.maximum_marks) || 0;
+    const obt = parseFloat(fieldName === 'obtained_marks' ? cleanVal : updatedRow.obtained_marks) || 0;
     if (max > 0 && !isNaN(obt)) {
       updatedRow.percentage = ((obt / max) * 100).toFixed(2);
     } else {
@@ -852,9 +895,17 @@ function AcademicPerformanceRenderer({ field_label, required, value, onChange, e
       rowIdx = list.length - 1;
     }
 
-    const updatedRow = { ...list[rowIdx], qualification: qual, semester: semLabel, subject: semLabel, [fieldName]: val };
-    const max = parseFloat(fieldName === 'maximum_marks' ? val : updatedRow.maximum_marks) || 0;
-    const obt = parseFloat(fieldName === 'obtained_marks' ? val : updatedRow.obtained_marks) || 0;
+    let cleanVal = val;
+    if (fieldName === 'obtained_marks' || fieldName === 'maximum_marks') {
+      const num = parseFloat(val);
+      if (!isNaN(num) && num < 0) {
+        cleanVal = '0';
+      }
+    }
+
+    const updatedRow = { ...list[rowIdx], qualification: qual, semester: semLabel, subject: semLabel, [fieldName]: cleanVal };
+    const max = parseFloat(fieldName === 'maximum_marks' ? cleanVal : updatedRow.maximum_marks) || 0;
+    const obt = parseFloat(fieldName === 'obtained_marks' ? cleanVal : updatedRow.obtained_marks) || 0;
     if (max > 0 && !isNaN(obt)) {
       updatedRow.percentage = ((obt / max) * 100).toFixed(2);
     } else {
@@ -938,14 +989,16 @@ function AcademicPerformanceRenderer({ field_label, required, value, onChange, e
                             <input
                               type="number"
                               value={row.maximum_marks ?? '100'}
-                              onChange={(e) => handleHscRowChange(subject, 'maximum_marks', e.target.value)}
+                              disabled
                               placeholder="100"
-                              className="w-full rounded-lg border border-slate-300 p-2 text-xs focus:ring-1 focus:ring-tec-navy"
+                              className="w-full rounded-lg border border-slate-200 bg-slate-100 p-2 text-xs text-slate-500 cursor-not-allowed"
                             />
                           </td>
                           <td className="p-2">
                             <input
                               type="number"
+                              min={0}
+                              max={100}
                               value={row.obtained_marks ?? ''}
                               onChange={(e) => handleHscRowChange(subject, 'obtained_marks', e.target.value)}
                               placeholder="e.g. 95"
@@ -998,14 +1051,16 @@ function AcademicPerformanceRenderer({ field_label, required, value, onChange, e
                             <input
                               type="number"
                               value={row.maximum_marks ?? '100'}
-                              onChange={(e) => handleHscRowChange(subject, 'maximum_marks', e.target.value)}
+                              disabled
                               placeholder="100"
-                              className="w-full rounded-lg border border-slate-300 p-2 text-xs focus:ring-1 focus:ring-tec-navy"
+                              className="w-full rounded-lg border border-slate-200 bg-slate-100 p-2 text-xs text-slate-500 cursor-not-allowed"
                             />
                           </td>
                           <td className="p-2">
                             <input
                               type="number"
+                              min={0}
+                              max={100}
                               value={row.obtained_marks ?? ''}
                               onChange={(e) => handleHscRowChange(subject, 'obtained_marks', e.target.value)}
                               placeholder="e.g. 90"

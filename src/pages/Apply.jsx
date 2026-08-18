@@ -19,6 +19,33 @@ import {
   Save, RotateCcw, CheckCircle2, Layers, BookOpen, AlertCircle, Eye, Check, ClipboardList
 } from 'lucide-react';
 
+/**
+ * Helper to convert File to Base64 Data URL (Async)
+ */
+function fileToDataURL(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = (e) => reject(e);
+    reader.readAsDataURL(file);
+  });
+}
+
+/**
+ * Helper to convert Base64 Data URL to File object
+ */
+function dataURLtoFile(dataurl, filename) {
+  const arr = dataurl.split(',');
+  const mime = arr[0].match(/:(.*?);/)[1];
+  const bstr = atob(arr[1]);
+  let n = bstr.length;
+  const u8arr = new Uint8Array(n);
+  while (n--) {
+    u8arr[n] = bstr.charCodeAt(n);
+  }
+  return new File([u8arr], filename, { type: mime });
+}
+
 export function Apply() {
   const { user, showToast, academicYear, setApplication } = useAuth();
   const navigate = useNavigate();
@@ -58,7 +85,60 @@ export function Apply() {
       try {
         const parsed = JSON.parse(rawDraft);
         if (parsed && parsed.formValues) {
-          setFormValues(parsed.formValues);
+          // Deserialize files from draft
+          const deserializedFormValues = {};
+          for (const [key, value] of Object.entries(parsed.formValues)) {
+            if (value && typeof value === 'object') {
+              if (value.__is_draft_file) {
+                try {
+                  const restoredFile = dataURLtoFile(value.data, value.name);
+                  deserializedFormValues[key] = {
+                    file: restoredFile,
+                    name: value.name,
+                    size: value.size,
+                    type: value.type,
+                    previewUrl: value.type.startsWith('image/') ? value.data : null,
+                    uploadedAt: new Date().toLocaleDateString(),
+                  };
+                } catch (err) {
+                  console.error('Failed to restore file from draft:', err);
+                  deserializedFormValues[key] = value;
+                }
+              } else if (Array.isArray(value)) {
+                const deserializedArray = [];
+                for (const item of value) {
+                  if (item && typeof item === 'object' && item.document && item.document.__is_draft_file) {
+                    try {
+                      const restoredFile = dataURLtoFile(item.document.data, item.document.name);
+                      deserializedArray.push({
+                        ...item,
+                        document: {
+                          file: restoredFile,
+                          name: item.document.name,
+                          size: item.document.size,
+                          type: item.document.type,
+                          previewUrl: item.document.type.startsWith('image/') ? item.document.data : null,
+                          uploadedAt: new Date().toLocaleDateString(),
+                        }
+                      });
+                    } catch (err) {
+                      console.error('Failed to restore array item file:', err);
+                      deserializedArray.push(item);
+                    }
+                  } else {
+                    deserializedArray.push(item);
+                  }
+                }
+                deserializedFormValues[key] = deserializedArray;
+              } else {
+                deserializedFormValues[key] = value;
+              }
+            } else {
+              deserializedFormValues[key] = value;
+            }
+          }
+
+          setFormValues(deserializedFormValues);
           if (parsed.currentModuleIndex !== undefined) {
             setCurrentModuleIndex(parsed.currentModuleIndex);
           }
@@ -199,11 +279,72 @@ export function Apply() {
   }, [fields, formValues]);
 
   // Save Draft to localStorage
-  const handleSaveDraft = () => {
+  const handleSaveDraft = async () => {
     try {
       const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      
+      // Serialize formValues, converting File objects to base64 strings
+      const serializedFormValues = {};
+      
+      for (const [key, value] of Object.entries(formValues)) {
+        if (value && typeof value === 'object') {
+          // Check if it is a FileUpload structure (with file property)
+          const rawFile = value.file instanceof File ? value.file : (value instanceof File ? value : null);
+          if (rawFile) {
+            try {
+              const base64Data = await fileToDataURL(rawFile);
+              serializedFormValues[key] = {
+                __is_draft_file: true,
+                name: value.name || rawFile.name,
+                size: value.size || ((rawFile.size / 1024).toFixed(1) + ' KB'),
+                type: value.type || rawFile.type,
+                data: base64Data,
+              };
+            } catch (err) {
+              console.error('Failed to convert file to data URL:', err);
+              serializedFormValues[key] = value;
+            }
+          } else if (Array.isArray(value)) {
+            // Check if it's an array of files (e.g. certificates list)
+            const serializedArray = [];
+            for (const item of value) {
+              if (item && typeof item === 'object') {
+                const itemFile = item.document?.file instanceof File ? item.document.file : (item.document instanceof File ? item.document : null);
+                if (itemFile) {
+                  try {
+                    const base64Data = await fileToDataURL(itemFile);
+                    serializedArray.push({
+                      ...item,
+                      document: {
+                        __is_draft_file: true,
+                        name: item.document.name || itemFile.name,
+                        size: item.document.size || ((itemFile.size / 1024).toFixed(1) + ' KB'),
+                        type: item.document.type || itemFile.type,
+                        data: base64Data,
+                      }
+                    });
+                  } catch (err) {
+                    console.error('Failed to convert array item file to data URL:', err);
+                    serializedArray.push(item);
+                  }
+                } else {
+                  serializedArray.push(item);
+                }
+              } else {
+                serializedArray.push(item);
+              }
+            }
+            serializedFormValues[key] = serializedArray;
+          } else {
+            serializedFormValues[key] = value;
+          }
+        } else {
+          serializedFormValues[key] = value;
+        }
+      }
+
       const draftPayload = {
-        formValues,
+        formValues: serializedFormValues,
         currentModuleIndex,
         selectedProgramId,
         savedAt: timeStr,
@@ -212,7 +353,12 @@ export function Apply() {
       setDraftSavedAt(timeStr);
       showToast(`Application draft saved at ${timeStr}`, 'success');
     } catch (e) {
-      showToast('Failed to save application draft.', 'error');
+      console.error('Failed to save application draft:', e);
+      if (e.name === 'QuotaExceededError' || e.code === 22) {
+        showToast('Draft size limit exceeded. Please reduce the size of your uploaded photo or files.', 'error');
+      } else {
+        showToast('Failed to save application draft.', 'error');
+      }
     }
   };
 
@@ -315,12 +461,21 @@ export function Apply() {
               err = `Academic Performance: Please enter marks for all 3 subjects`;
             } else {
               for (const row of validRows) {
+                const max = parseFloat(row.maximum_marks);
+                const obt = parseFloat(row.obtained_marks);
+
+                if (isNaN(max) || max !== 100) {
+                  err = `Academic Performance: Maximum marks for ${row.subject || 'Subject'} must be exactly 100`;
+                  break;
+                }
                 if (row.obtained_marks === undefined || row.obtained_marks === null || String(row.obtained_marks).trim() === '') {
                   err = `Academic Performance: ${row.subject || 'Subject'} obtained marks are required`;
                   break;
                 }
-                const max = parseFloat(row.maximum_marks) || 100;
-                const obt = parseFloat(row.obtained_marks) || 0;
+                if (isNaN(obt) || obt < 0 || obt > 100) {
+                  err = `Academic Performance: Obtained marks for ${row.subject || 'Subject'} must be between 0 and 100`;
+                  break;
+                }
                 if (obt > max) {
                   err = `Academic Performance: ${row.subject || 'Subject'} obtained marks cannot exceed maximum marks (${max})`;
                   break;
@@ -335,59 +490,75 @@ export function Apply() {
           if (!val || !Array.isArray(val) || val.length < expectedCount) {
             err = `Please complete all required qualification rows in the table`;
           } else {
-            // Validate individual rows inside the array table
+            // Check for duplicate register numbers in current application
+            const seenReg = new Set();
             for (let rIdx = 0; rIdx < val.length; rIdx++) {
               const row = val[rIdx] || {};
-              const qualName = row.qualification || `Row ${rIdx + 1}`;
-
-              // All fields in qualifications table rows are strictly compulsory!
-              if (isQual) {
-                if (!row.institution || !String(row.institution).trim()) {
-                  err = `${qualName}: School / College name is required`;
+              const regNo = String(row.register_number || '').trim().toUpperCase();
+              if (regNo) {
+                if (seenReg.has(regNo)) {
+                  err = `Duplicate Register Number "${row.register_number}" found. Each qualification must have a unique register number.`;
                   break;
                 }
-                if (!row.board || !String(row.board).trim()) {
-                  err = `${qualName}: Board / University name is required`;
-                  break;
-                }
-                if (!row.register_number || !String(row.register_number).trim()) {
-                  err = `${qualName}: Register Number is required`;
-                  break;
-                }
-                if (!row.year_of_passing || !String(row.year_of_passing).trim()) {
-                  err = `${qualName}: Year of Passing is required`;
-                  break;
-                }
-                if (!row.percentage || !String(row.percentage).trim()) {
-                  err = `${qualName}: Percentage is required`;
-                  break;
-                }
+                seenReg.add(regNo);
               }
+            }
 
-              for (const k in row) {
-                const colKey = k.toLowerCase();
-                const v = String(row[k] || '').trim();
+            if (!err) {
+              // Validate individual rows inside the array table
+              for (let rIdx = 0; rIdx < val.length; rIdx++) {
+                const row = val[rIdx] || {};
+                const qualName = row.qualification || `Row ${rIdx + 1}`;
 
-                // Year of passing validation: 4 digits between 1950 and current year
-                if (colKey.includes('year')) {
-                  const y = parseInt(v, 10);
-                  const currentYear = new Date().getFullYear();
-                  if (!v || isNaN(y) || y < 1950 || y > currentYear || v.length !== 4) {
-                    err = `${qualName}: Year of Passing must be a valid 4-digit year (e.g. 2022)`;
+                // All fields in qualifications table rows are strictly compulsory!
+                if (isQual) {
+                  if (!row.institution || !String(row.institution).trim()) {
+                    err = `${qualName}: School / College name is required`;
+                    break;
+                  }
+                  if (!row.board || !String(row.board).trim()) {
+                    err = `${qualName}: Board / University name is required`;
+                    break;
+                  }
+                  if (!row.register_number || !String(row.register_number).trim()) {
+                    err = `${qualName}: Register Number is required`;
+                    break;
+                  }
+                  if (!row.year_of_passing || !String(row.year_of_passing).trim()) {
+                    err = `${qualName}: Year of Passing is required`;
+                    break;
+                  }
+                  if (!row.percentage || !String(row.percentage).trim()) {
+                    err = `${qualName}: Percentage is required`;
                     break;
                   }
                 }
 
-                // Percentage validation: between 0 and 100
-                if (colKey.includes('percentage')) {
-                  const p = parseFloat(v);
-                  if (v && (isNaN(p) || p < 0 || p > 100)) {
-                    err = `${qualName}: Percentage must be between 0 and 100`;
-                    break;
+                for (const k in row) {
+                  const colKey = k.toLowerCase();
+                  const v = String(row[k] || '').trim();
+
+                  // Year of passing validation: 4 digits between 1950 and current year
+                  if (colKey.includes('year')) {
+                    const y = parseInt(v, 10);
+                    const currentYear = new Date().getFullYear();
+                    if (!v || isNaN(y) || y < 1950 || y > currentYear || v.length !== 4) {
+                      err = `${qualName}: Year of Passing must be a valid 4-digit year (e.g. 2022)`;
+                      break;
+                    }
+                  }
+
+                  // Percentage validation: between 0 and 100
+                  if (colKey.includes('percentage')) {
+                    const p = parseFloat(v);
+                    if (v && (isNaN(p) || p < 0 || p > 100)) {
+                      err = `${qualName}: Percentage must be between 0 and 100`;
+                      break;
+                    }
                   }
                 }
+                if (err) break;
               }
-              if (err) break;
             }
           }
         } else if (field.field_key === 'certificates' || field.field_key.includes('certificate')) {
@@ -650,6 +821,49 @@ export function Apply() {
 
     } catch (err) {
       console.error('Application Submission Error:', err);
+      
+      // Parse Django REST Framework validation errors
+      if (err.response?.status === 400 && err.response?.data) {
+        const data = err.response.data;
+        if (data.form_data) {
+          const flatErrors = {};
+          let firstError = '';
+          
+          for (const mKey of Object.keys(data.form_data)) {
+            const mErrors = data.form_data[mKey];
+            if (typeof mErrors === 'object' && mErrors !== null) {
+              for (const fKey of Object.keys(mErrors)) {
+                let fError = mErrors[fKey];
+                if (Array.isArray(fError)) fError = fError[0];
+                flatErrors[fKey] = fError;
+                if (!firstError) firstError = fError;
+              }
+            } else if (typeof mErrors === 'string') {
+              flatErrors[mKey] = mErrors;
+              if (!firstError) firstError = mErrors;
+            }
+          }
+          
+          if (Object.keys(flatErrors).length > 0) {
+            setErrors(flatErrors);
+            showToast(firstError, 'error');
+            
+            // Navigate back to the first module that has errors
+            for (let i = 0; i < activeModules.length; i++) {
+              const mod = activeModules[i];
+              const modFields = fields.filter((f) => f.form_module_id === mod.id);
+              const hasError = modFields.some((f) => flatErrors[f.field_key]);
+              if (hasError) {
+                setCurrentModuleIndex(i);
+                setIsReviewStep(false);
+                break;
+              }
+            }
+            return;
+          }
+        }
+      }
+
       const errMsg = err.response?.data?.detail || err.response?.data?.message || err.message || 'Failed to submit application.';
       showToast(typeof errMsg === 'object' ? JSON.stringify(errMsg) : errMsg, 'error');
     } finally {

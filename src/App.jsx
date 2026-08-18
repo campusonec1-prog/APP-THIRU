@@ -8,7 +8,6 @@ import { Home } from './pages/Home';
 import { Register } from './pages/Register';
 import { Login } from './pages/Login';
 import { Apply } from './pages/Apply';
-import { Payment } from './pages/Payment';
 import { Status } from './pages/Status';
 
 function ScrollToTop() {
@@ -35,7 +34,6 @@ export function App() {
               <Route path="/register" element={<Register />} />
               <Route path="/login" element={<Login />} />
               <Route path="/application-form" element={<Apply />} />
-              <Route path="/payment" element={<Payment />} />
               <Route path="/profile" element={<Status />} />
             </Routes>
           </main>

@@ -26,7 +26,7 @@ export const Input = React.forwardRef(({
         <input
           ref={ref}
           type={type}
-          className={`w-full rounded-lg border text-sm transition-colors py-2.5 px-3.5 focus:outline-none focus:ring-2 ${
+          className={`w-full rounded-lg border text-sm transition-colors py-2.5 px-3.5 focus:outline-none focus:ring-2 disabled:bg-slate-50 disabled:text-slate-500 disabled:cursor-not-allowed disabled:border-slate-200 ${
             Icon ? 'pl-10' : ''
           } ${
             error
