@@ -112,25 +112,54 @@ function renderValue(field, value, formValues = {}) {
     if (!Array.isArray(value) || value.length === 0) {
       return <span className="text-slate-400 italic">No entries added</span>;
     }
-    const cols = field.choices || field.columns || [];
+
+    // Determine columns dynamically if field.choices or field.columns is missing or incomplete
+    let cols = Array.isArray(field.choices) && field.choices.length > 0
+      ? field.choices
+      : (Array.isArray(field.columns) && field.columns.length > 0 ? field.columns : []);
+
+    if (cols.length === 0 && value.length > 0 && typeof value[0] === 'object' && value[0] !== null) {
+      cols = Object.keys(value[0]).map((k) => ({ key: k, label: k.replace(/_/g, ' ').toUpperCase() }));
+    }
+
     return (
-      <div className="overflow-x-auto border border-slate-200 rounded-xl my-1">
+      <div className="overflow-x-auto border border-slate-200 rounded-xl my-1 shadow-xs">
         <table className="w-full text-left text-xs">
-          <thead className="bg-slate-100 text-slate-700 font-bold border-b border-slate-200">
+          <thead className="bg-slate-100 text-slate-700 font-extrabold uppercase tracking-wider border-b border-slate-200">
             <tr>
-              <th className="p-2">#</th>
+              <th className="p-2.5 w-10">#</th>
               {cols.map((c, idx) => (
-                <th key={c.key || idx} className="p-2">{c.label || c.key}</th>
+                <th key={c.key || idx} className="p-2.5">{c.label || c.key}</th>
               ))}
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100 bg-white">
             {value.map((row, rIdx) => (
-              <tr key={rIdx}>
-                <td className="p-2 font-bold text-slate-500">{rIdx + 1}</td>
-                {cols.map((c, cIdx) => (
-                  <td key={c.key || cIdx} className="p-2">{row[c.key] || '-'}</td>
-                ))}
+              <tr key={rIdx} className="hover:bg-slate-50/50">
+                <td className="p-2.5 font-bold text-slate-500">{rIdx + 1}</td>
+                {cols.map((c, cIdx) => {
+                  const cellVal = row ? row[c.key] : null;
+
+                  // Safely handle file / object cells inside array tables (e.g. certificates document field)
+                  if (cellVal && typeof cellVal === 'object') {
+                    const rawFile = cellVal instanceof File ? cellVal : (cellVal.file instanceof File ? cellVal.file : null);
+                    const fileName = rawFile ? rawFile.name : (cellVal.name || cellVal.url || (typeof cellVal === 'string' ? cellVal.split('/').pop() : 'File Attached'));
+                    return (
+                      <td key={c.key || cIdx} className="p-2.5">
+                        <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded bg-slate-100 text-slate-800 font-semibold text-[11px]">
+                          <FileText className="w-3.5 h-3.5 text-tec-navy shrink-0" />
+                          <span className="truncate max-w-[150px]">{fileName}</span>
+                        </span>
+                      </td>
+                    );
+                  }
+
+                  return (
+                    <td key={c.key || cIdx} className="p-2.5 font-medium text-slate-800">
+                      {cellVal !== undefined && cellVal !== null && cellVal !== '' ? String(cellVal) : '-'}
+                    </td>
+                  );
+                })}
               </tr>
             ))}
           </tbody>
@@ -185,6 +214,10 @@ function renderValue(field, value, formValues = {}) {
       }
     }
     return <span className="font-semibold text-slate-900">{String(label)}</span>;
+  }
+
+  if (typeof value === 'object' && value !== null) {
+    return <span className="font-semibold text-slate-900">{JSON.stringify(value)}</span>;
   }
 
   return <span className="font-semibold text-slate-900">{String(value)}</span>;

@@ -245,6 +245,25 @@ export function DynamicFormField({
     );
   }
 
+  // Render Special Custom Component for Certificates Repeater (Default 5/6 compulsory rows + optional extra rows)
+  if (field_key === 'certificates' || field_key.includes('certificate')) {
+    return (
+      <CertificatesRenderer
+        field_label={field_label}
+        required={required}
+        value={value}
+        onChange={onChange}
+        error={error}
+        programLevel={programLevel}
+        formValues={formValues}
+        uploadProgress={uploadProgress}
+        onAddArrayRow={onAddArrayRow}
+        onRemoveArrayRow={onRemoveArrayRow}
+        onArrayRowChange={onArrayRowChange}
+      />
+    );
+  }
+
   // Render File Upload Field
   if (field_type === 'file') {
     // If value is a URL string, normalize it into preview format for FileUpload
@@ -371,11 +390,10 @@ export function DynamicFormField({
           value={value || ''}
           onChange={(e) => onChange(field_key, e.target.value)}
           rows={3}
-          className={`w-full rounded-xl border p-3 text-sm transition focus:outline-none focus:ring-2 ${
-            error
+          className={`w-full rounded-xl border p-3 text-sm transition focus:outline-none focus:ring-2 ${error
               ? 'border-rose-500 focus:ring-rose-500 bg-rose-50/30'
               : 'border-slate-300 focus:border-tec-navy focus:ring-tec-navy/20'
-          }`}
+            }`}
         />
         {error && (
           <p className="mt-1 text-xs text-rose-600 font-medium">
@@ -579,11 +597,10 @@ export function DynamicFormField({
             onChange={handleAadhaarChange}
             placeholder={placeholder || '1234 5678 9012'}
             maxLength={14} /* 12 digits + 2 spaces */
-            className={`w-full rounded-lg border text-sm transition-colors py-2.5 px-3.5 focus:outline-none focus:ring-2 tracking-widest font-mono ${
-              error
+            className={`w-full rounded-lg border text-sm transition-colors py-2.5 px-3.5 focus:outline-none focus:ring-2 tracking-widest font-mono ${error
                 ? 'border-rose-400 focus:border-rose-500 focus:ring-rose-200 bg-rose-50/20'
                 : 'border-slate-300 focus:border-tec-navy focus:ring-slate-200 bg-white'
-            }`}
+              }`}
           />
           {isComplete && (
             <div className="absolute inset-y-0 right-3 flex items-center">
@@ -632,11 +649,10 @@ export function DynamicFormField({
             onChange={handleMobileChange}
             placeholder={placeholder || '98765 43210'}
             maxLength={11} /* 10 digits + 1 space */
-            className={`w-full rounded-lg border text-sm transition-colors py-2.5 px-3.5 focus:outline-none focus:ring-2 tracking-widest font-mono ${
-              error
+            className={`w-full rounded-lg border text-sm transition-colors py-2.5 px-3.5 focus:outline-none focus:ring-2 tracking-widest font-mono ${error
                 ? 'border-rose-400 focus:border-rose-500 focus:ring-rose-200 bg-rose-50/20'
                 : 'border-slate-300 focus:border-tec-navy focus:ring-slate-200 bg-white'
-            }`}
+              }`}
           />
           {isComplete && (
             <div className="absolute inset-y-0 right-3 flex items-center">
@@ -701,25 +717,72 @@ export function DynamicFormField({
  */
 function AcademicPerformanceRenderer({ field_label, required, value, onChange, error, programLevel, formValues }) {
   const isPg = String(programLevel || '').toUpperCase() === 'PG';
-  const qualList = formValues?.qualifications || [];
-  const selectedQual = qualList[1]?.qualification || (isPg ? 'UG' : 'HSC');
-  const isDiploma = selectedQual === 'Diploma';
-  const isSemesterMode = isPg || isDiploma;
+  const qualList = formValues?.qualifications || formValues?.academic_qualification || [];
+  const selectedQualRow = qualList[1]?.qualification || (isPg ? 'UG' : 'HSC');
+  const isDiploma = selectedQualRow === 'Diploma';
+  const isUgDegree = selectedQualRow === 'UG' || qualList[2]?.qualification === 'UG';
+  const isSemesterMode = isPg || isDiploma || isUgDegree;
 
   // Stream state for HSC: 'academic' or 'vocational'
   const [stream, setStream] = React.useState('academic');
 
   // HSC Academic default subjects
-  const hscAcademicSubjects = ['Maths (M)', 'Physics (P)', 'Chemistry (C)'];
+  const hscAcademicSubjects = React.useMemo(() => ['Maths (M)', 'Physics (P)', 'Chemistry (C)'], []);
   // HSC Vocational default subjects
-  const hscVocationalSubjects = ['Maths (M)', 'Theory (I)', 'Practical 1&2'];
+  const hscVocationalSubjects = React.useMemo(() => ['Maths (M)', 'Theory (I)', 'Practical 1&2'], []);
 
   // Semester default labels (Semesters I to VIII)
-  const semesterLabels = [
+  const semesterLabels = React.useMemo(() => [
     'Semester I', 'Semester II', 'Semester III',
     'Semester IV', 'Semester V', 'Semester VI',
     'Semester VII', 'Semester VIII'
-  ];
+  ], []);
+
+  // Ensure active list is properly initialized in state for HSC
+  React.useEffect(() => {
+    if (!isSemesterMode) {
+      const currentList = Array.isArray(value) ? value : [];
+      const targetSubjects = stream === 'academic' ? hscAcademicSubjects : hscVocationalSubjects;
+
+      // Check if currentList matches active targetSubjects
+      const isMatching = currentList.length === 3 && targetSubjects.every((subj) => currentList.some((r) => r.subject === subj));
+
+      if (!isMatching) {
+        const newList = targetSubjects.map((subj) => {
+          const existing = currentList.find((r) => r.subject === subj);
+          return {
+            qualification: 'HSC',
+            stream: stream === 'academic' ? 'HSC Academic' : 'HSC Vocational',
+            subject: subj,
+            maximum_marks: existing?.maximum_marks || '100',
+            obtained_marks: existing?.obtained_marks || '',
+            percentage: existing?.percentage || '0.00'
+          };
+        });
+        onChange('academic_performance', newList);
+      }
+    }
+  }, [isSemesterMode, stream, hscAcademicSubjects, hscVocationalSubjects, value, onChange]);
+
+  // Stream Switch Handler
+  const handleStreamChange = (newStream) => {
+    setStream(newStream);
+    const targetSubjects = newStream === 'academic' ? hscAcademicSubjects : hscVocationalSubjects;
+    const currentList = Array.isArray(value) ? value : [];
+
+    const newList = targetSubjects.map((subj) => {
+      const existing = currentList.find((r) => r.subject === subj);
+      return {
+        qualification: 'HSC',
+        stream: newStream === 'academic' ? 'HSC Academic' : 'HSC Vocational',
+        subject: subj,
+        maximum_marks: existing?.maximum_marks || '100',
+        obtained_marks: existing?.obtained_marks || '',
+        percentage: existing?.percentage || '0.00'
+      };
+    });
+    onChange('academic_performance', newList);
+  };
 
   // Calculate Cutoff out of 200 for HSC
   const calculateHscCutoff = (list) => {
@@ -829,12 +892,11 @@ function AcademicPerformanceRenderer({ field_label, required, value, onChange, e
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-slate-50 p-2 rounded-xl border border-slate-200">
             <button
               type="button"
-              onClick={() => setStream('academic')}
-              className={`p-3 rounded-lg text-xs font-extrabold text-left transition flex items-center justify-between cursor-pointer ${
-                stream === 'academic'
+              onClick={() => handleStreamChange('academic')}
+              className={`p-3 rounded-lg text-xs font-extrabold text-left transition flex items-center justify-between cursor-pointer ${stream === 'academic'
                   ? 'bg-tec-navy text-white shadow-md'
                   : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200'
-              }`}
+                }`}
             >
               <span>(i) HSC (Academic Stream) / Equivalent</span>
               <span className={`w-3.5 h-3.5 rounded-full border flex items-center justify-center ${stream === 'academic' ? 'border-white bg-tec-gold' : 'border-slate-400'}`} />
@@ -842,12 +904,11 @@ function AcademicPerformanceRenderer({ field_label, required, value, onChange, e
 
             <button
               type="button"
-              onClick={() => setStream('vocational')}
-              className={`p-3 rounded-lg text-xs font-extrabold text-left transition flex items-center justify-between cursor-pointer ${
-                stream === 'vocational'
+              onClick={() => handleStreamChange('vocational')}
+              className={`p-3 rounded-lg text-xs font-extrabold text-left transition flex items-center justify-between cursor-pointer ${stream === 'vocational'
                   ? 'bg-tec-navy text-white shadow-md'
                   : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200'
-              }`}
+                }`}
             >
               <span>(ii) HSC (Vocational) / Equivalent</span>
               <span className={`w-3.5 h-3.5 rounded-full border flex items-center justify-center ${stream === 'vocational' ? 'border-white bg-tec-gold' : 'border-slate-400'}`} />
@@ -1046,6 +1107,243 @@ function AcademicPerformanceRenderer({ field_label, required, value, onChange, e
           </div>
         </div>
       )}
+
+      {error && (
+        <p className="mt-1 text-xs text-rose-600 font-medium">
+          {error}
+        </p>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Certificates Renderer matching official document types & compulsory vs optional rules:
+ * - Default 5 compulsory certificate rows for UG (Photo, Aadhaar, SSLC, HSC, TC)
+ * - Default 6 compulsory certificate rows for PG / Diploma (Photo, Aadhaar, SSLC, HSC, TC, Degree/Diploma Certificate)
+ * - Extra added rows via '+ Add Row' are optional.
+ */
+function CertificatesRenderer({ field_label, required, value, onChange, error, programLevel, formValues, uploadProgress }) {
+  const isPg = String(programLevel || '').toUpperCase() === 'PG';
+  const qualList = formValues?.qualifications || formValues?.academic_qualification || [];
+  const selectedQualRow = qualList[1]?.qualification || (isPg ? 'UG' : 'HSC');
+  const isDiploma = selectedQualRow === 'Diploma';
+  const isUgDegree = selectedQualRow === 'UG' || qualList[2]?.qualification === 'UG';
+  const isPgOrDiploma = isPg || isDiploma || isUgDegree;
+
+  // Build list of default compulsory certificate types
+  const defaultCertTypes = React.useMemo(() => {
+    const list = [
+      'Passport Size Photo',
+      'Aadhaar Card',
+      'SSLC Marksheet',
+      'HSC Marksheet',
+      'Transfer Certificate'
+    ];
+    if (isPg || isUgDegree) {
+      list.push('Degree Certificate');
+    } else if (isDiploma) {
+      list.push('Diploma Certificate');
+    }
+    return list;
+  }, [isPg, isDiploma, isUgDegree]);
+
+  // Dynamic list of certificate options tailored strictly to candidate level (UG vs PG vs Diploma)
+  const allCertOptions = React.useMemo(() => {
+    const baseOptions = [
+      'Passport Size Photo',
+      'Aadhaar Card',
+      'SSLC Marksheet',
+      'HSC Marksheet',
+      'Transfer Certificate',
+      'Conduct Certificate',
+      'Community Certificate',
+      'Income Certificate',
+      'Nativity Certificate',
+      'First Graduate Certificate',
+      'Anna University Allotment Order'
+    ];
+
+    if (isPg || isUgDegree) {
+      // PG / UG Degree options
+      baseOptions.push(
+        'Migration Certificate',
+        'Degree Certificate',
+        'Consolidated Marksheet',
+        'Provisional Certificate'
+      );
+    } else if (isDiploma) {
+      // Diploma options
+      baseOptions.push(
+        'Migration Certificate',
+        'Diploma Certificate',
+        'Consolidated Marksheet',
+        'Provisional Certificate'
+      );
+    }
+    return baseOptions;
+  }, [isPg, isDiploma, isUgDegree]);
+
+  // Auto-initialize and enforce unique default compulsory certificate types for rows 0..compulsoryCount-1
+  React.useEffect(() => {
+    const currentList = Array.isArray(value) ? value : [];
+
+    // Check if current list has distinct default certificate types
+    let needsReset = currentList.length === 0;
+    if (currentList.length >= 2 && currentList[0]?.certificate_type === currentList[1]?.certificate_type) {
+      needsReset = true;
+    }
+
+    if (needsReset) {
+      const initialList = defaultCertTypes.map((certType, idx) => ({
+        certificate_type: certType,
+        document: currentList[idx]?.document || ''
+      }));
+      // Retain extra rows if any
+      if (currentList.length > defaultCertTypes.length) {
+        for (let i = defaultCertTypes.length; i < currentList.length; i++) {
+          initialList.push(currentList[i]);
+        }
+      }
+      onChange('certificates', initialList);
+    } else {
+      // Check if any compulsory row is missing its specific certificate_type
+      let needsSync = false;
+      const synced = [...currentList];
+      defaultCertTypes.forEach((certType, idx) => {
+        if (!synced[idx]) {
+          synced[idx] = { certificate_type: certType, document: '' };
+          needsSync = true;
+        } else if (!synced[idx].certificate_type) {
+          synced[idx].certificate_type = certType;
+          needsSync = true;
+        }
+      });
+      if (needsSync) {
+        onChange('certificates', synced);
+      }
+    }
+  }, [defaultCertTypes, value, onChange]);
+
+  const list = Array.isArray(value) ? value : [];
+  const compulsoryCount = defaultCertTypes.length;
+
+  // Selected certificate types across all rows (for dynamic filtering)
+  const selectedCertTypes = list.map((r) => r.certificate_type).filter(Boolean);
+
+  const handleRowCertChange = (rowIdx, certType) => {
+    const updated = [...list];
+    updated[rowIdx] = { ...updated[rowIdx], certificate_type: certType };
+    onChange('certificates', updated);
+  };
+
+  const handleRowFileChange = (rowIdx, fileOrUrl) => {
+    const updated = [...list];
+    updated[rowIdx] = { ...updated[rowIdx], document: fileOrUrl };
+    onChange('certificates', updated);
+  };
+
+  const handleAddExtraRow = () => {
+    const firstAvailable = allCertOptions.find((opt) => !selectedCertTypes.includes(opt)) || 'Other';
+    const updated = [...list, { certificate_type: firstAvailable, document: '' }];
+    onChange('certificates', updated);
+  };
+
+  const handleRemoveExtraRow = (rowIdx) => {
+    const updated = list.filter((_, idx) => idx !== rowIdx);
+    onChange('certificates', updated);
+  };
+
+  return (
+    <div className="w-full space-y-4 col-span-full border border-slate-200 rounded-2xl p-5 bg-white shadow-xs">
+      <div className="border-b border-slate-100 pb-3">
+        <h3 className="text-base font-extrabold text-slate-900">
+          {field_label || 'Upload Certificates'} {required && <span className="text-rose-500">*</span>}
+        </h3>
+        <p className="text-xs text-slate-500 font-medium mt-0.5">
+          {compulsoryCount} Compulsory Certificates ({isPgOrDiploma ? 'PG / Diploma' : 'UG / HSC'}) + Optional Additional Documents
+        </p>
+      </div>
+
+      <div className="overflow-x-auto border border-slate-200 rounded-xl shadow-xs">
+        <table className="w-full text-left text-xs">
+          <thead className="bg-slate-100 border-b border-slate-200 text-slate-700 font-extrabold uppercase tracking-wider">
+            <tr>
+              <th className="p-3 w-12">#</th>
+              <th className="p-3 min-w-[220px]">Certificate Type</th>
+              <th className="p-3 min-w-[280px]">Upload File</th>
+              <th className="p-3 text-right w-16">Action</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100 bg-white">
+            {list.map((row, rowIdx) => {
+              const isCompulsory = rowIdx < compulsoryCount;
+              // Filter available options: include current row's selection, exclude options chosen in other rows
+              const availableOptions = allCertOptions.filter(
+                (opt) => opt === row.certificate_type || !selectedCertTypes.includes(opt)
+              );
+
+              return (
+                <tr key={rowIdx} className={isCompulsory ? 'hover:bg-slate-50 transition' : 'bg-slate-50/50 hover:bg-slate-100/60 transition'}>
+                  <td className="p-3 font-bold text-slate-500">{rowIdx + 1}</td>
+                  <td className="p-2">
+                    <div className="flex items-center gap-2">
+                      <select
+                        value={row.certificate_type || availableOptions[0] || ''}
+                        onChange={(e) => handleRowCertChange(rowIdx, e.target.value)}
+                        className={`w-full rounded-lg border p-2 text-xs font-bold text-slate-800 focus:ring-1 focus:ring-tec-navy cursor-pointer ${isCompulsory ? 'bg-slate-50 border-slate-300' : 'bg-amber-50/50 border-amber-200'
+                          }`}
+                      >
+                        {availableOptions.map((opt) => (
+                          <option key={opt} value={opt}>{opt}</option>
+                        ))}
+                      </select>
+                      {isCompulsory && (
+                        <span className="text-[10px] font-extrabold text-rose-500 shrink-0" title="Compulsory Upload">* Required</span>
+                      )}
+                    </div>
+                  </td>
+                  <td className="p-2">
+                    <FileUpload
+                      label=""
+                      required={isCompulsory}
+                      value={row.document || ''}
+                      onChange={(fileVal) => handleRowFileChange(rowIdx, fileVal)}
+                      uploadProgress={uploadProgress}
+                    />
+                  </td>
+                  <td className="p-3 text-right">
+                    {!isCompulsory ? (
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveExtraRow(rowIdx)}
+                        className="p-1.5 rounded bg-rose-50 text-rose-600 hover:bg-rose-100 transition cursor-pointer"
+                        title="Remove Optional Row"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    ) : (
+                      <span className="text-[10px] font-bold text-slate-400 italic">Default</span>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Bottom Add Row UX */}
+      <div className="pt-2 flex items-center justify-end">
+        <button
+          type="button"
+          onClick={handleAddExtraRow}
+          className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-tec-navy hover:bg-tec-navy-dark text-white text-xs font-bold transition shadow-xs cursor-pointer"
+        >
+          <Plus className="w-4 h-4" />
+          <span>Add Row</span>
+        </button>
+      </div>
 
       {error && (
         <p className="mt-1 text-xs text-rose-600 font-medium">

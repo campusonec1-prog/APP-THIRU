@@ -14,10 +14,6 @@ export function Payment() {
   const [isSuccess, setIsSuccess] = useState(false);
   const navigate = useNavigate();
 
-  if (!user) {
-    return <Navigate to="/login" replace />;
-  }
-
   useEffect(() => {
     refreshApplicationStatus();
   }, [refreshApplicationStatus]);
@@ -37,6 +33,10 @@ export function Payment() {
       setIsProcessing(false);
     }
   };
+
+  if (!user) {
+    return <Navigate to="/login" replace />;
+  }
 
   return (
     <div className="min-h-screen bg-slate-100 py-12 px-4 sm:px-6 lg:px-8">

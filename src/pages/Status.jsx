@@ -12,9 +12,6 @@ export function Status() {
   const { user, application, refreshApplicationStatus, academicYear } = useAuth();
   const navigate = useNavigate();
 
-  if (!user) {
-    return <Navigate to="/login" replace />;
-  }
 
   // Courses State (mirroring Home.jsx)
   const [activeTab, setActiveTab] = useState('UG');
@@ -68,6 +65,10 @@ export function Status() {
   const displayEmail = user?.email || '—';
   const displayMobile = user?.phone_number || '—';
   const initials = displayName.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2);
+
+  if (!user) {
+    return <Navigate to="/login" replace />;
+  }
 
   return (
     <div className="min-h-screen bg-slate-100 py-8 px-4 sm:px-6 lg:px-8">
