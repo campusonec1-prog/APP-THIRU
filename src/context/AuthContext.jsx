@@ -88,7 +88,12 @@ export function AuthProvider({ children }) {
     if (!user) return null;
     try {
       const res = await getApplicationStatus();
-      const appData = res?.data || res?.application || res;
+      let appData = res?.data || res?.application || res;
+      if (appData && typeof appData === 'object' && Array.isArray(appData.results)) {
+        appData = appData.results[0] || null;
+      } else if (Array.isArray(appData)) {
+        appData = appData[0] || null;
+      }
       if (appData) {
         setApplication(appData);
       }

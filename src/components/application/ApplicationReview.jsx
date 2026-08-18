@@ -4,7 +4,83 @@ import { ShieldCheck, Edit3, FileText, CheckCircle2, AlertTriangle, ArrowLeft } 
 /**
  * Format field value for display in review screen
  */
-function renderValue(field, value) {
+const STATE_NAME_TO_CODE = {
+  'tamil nadu': 'TN',
+  'kerala': 'KL',
+  'karnataka': 'KA',
+  'andhra pradesh': 'AP',
+  'telangana': 'TS',
+  'puducherry': 'PY',
+  'pondicherry': 'PY'
+};
+
+function normalizeStateValue(val) {
+  if (!val) return '';
+  const lower = String(val).trim().toLowerCase();
+  return STATE_NAME_TO_CODE[lower] || val;
+}
+
+function findParentValue(fieldKey, choices, formValues) {
+  if (!choices || typeof choices !== 'object' || Array.isArray(choices)) {
+    return null;
+  }
+  
+  const keyMap = {};
+  for (const key of Object.keys(choices)) {
+    keyMap[key.toLowerCase()] = key;
+  }
+  const possibleParentKeys = Object.keys(keyMap);
+  if (possibleParentKeys.length === 0) return null;
+  
+  const prefixes = ['', 'permanent_', 'communication_', 'present_', 'native_', 'parent_'];
+  const baseNames = ['state', 'country', 'region', 'nationality', 'category'];
+  
+  let currentPrefix = '';
+  for (const pf of prefixes) {
+    if (pf && fieldKey.startsWith(pf)) {
+      currentPrefix = pf;
+      break;
+    }
+  }
+  
+  for (const base of baseNames) {
+    const candidateKey = currentPrefix + base;
+    const candidateVal = formValues[candidateKey];
+    if (candidateVal) {
+      const normalized = normalizeStateValue(candidateVal);
+      const lowerVal = String(normalized).toLowerCase();
+      if (possibleParentKeys.includes(lowerVal)) {
+        return keyMap[lowerVal];
+      }
+    }
+  }
+
+  let bestMatchVal = null;
+  let highestScore = -1;
+  
+  for (const fKey of Object.keys(formValues)) {
+    const val = String(formValues[fKey] || '');
+    if (val) {
+      const normalized = normalizeStateValue(val);
+      const lowerVal = normalized.toLowerCase();
+      if (possibleParentKeys.includes(lowerVal)) {
+        let score = 0;
+        if (currentPrefix && fKey.startsWith(currentPrefix)) score += 10;
+        if (fKey.toLowerCase().includes('state')) score += 5;
+        if (fKey.toLowerCase() === 'state') score += 8;
+        
+        if (score > highestScore) {
+          highestScore = score;
+          bestMatchVal = keyMap[lowerVal];
+        }
+      }
+    }
+  }
+  
+  return bestMatchVal;
+}
+
+function renderValue(field, value, formValues = {}) {
   if (value === undefined || value === null || value === '') {
     return <span className="text-slate-400 italic">Not provided</span>;
   }
@@ -61,6 +137,54 @@ function renderValue(field, value) {
         </table>
       </div>
     );
+  }
+
+  if (field.field_type === 'select' || field.field_type === 'radio') {
+    let label = value;
+    if (field.choices) {
+      if (Array.isArray(field.choices)) {
+        const opt = field.choices.find(o => {
+          if (typeof o === 'object' && o !== null) {
+            return String(o.value ?? o.id ?? o.key ?? o.name ?? '') === String(value);
+          }
+          return String(o) === String(value);
+        });
+        if (opt) {
+          label = typeof opt === 'object' ? (opt.label ?? opt.name ?? opt.display ?? value) : opt;
+        }
+      } else if (typeof field.choices === 'object') {
+        const parentVal = findParentValue(field.field_key, field.choices, formValues);
+        const resolvedList = field.choices[parentVal] || [];
+        let opt = resolvedList.find(o => {
+          if (typeof o === 'object' && o !== null) {
+            return String(o.value ?? o.id ?? o.key ?? o.name ?? '') === String(value);
+          }
+          return String(o) === String(value);
+        });
+        
+        if (!opt) {
+          // Fallback search in all lists
+          for (const key of Object.keys(field.choices)) {
+            const list = field.choices[key] || [];
+            const foundOpt = list.find(o => {
+              if (typeof o === 'object' && o !== null) {
+                return String(o.value ?? o.id ?? o.key ?? o.name ?? '') === String(value);
+              }
+              return String(o) === String(value);
+            });
+            if (foundOpt) {
+              opt = foundOpt;
+              break;
+            }
+          }
+        }
+        
+        if (opt) {
+          label = typeof opt === 'object' ? (opt.label ?? opt.name ?? opt.display ?? value) : opt;
+        }
+      }
+    }
+    return <span className="font-semibold text-slate-900">{String(label)}</span>;
   }
 
   return <span className="font-semibold text-slate-900">{String(value)}</span>;
@@ -149,7 +273,7 @@ export function ApplicationReview({
                       <span className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider">
                         {field.field_label} {field.required && <span className="text-rose-500">*</span>}
                       </span>
-                      <div>{renderValue(field, val)}</div>
+                      <div>{renderValue(field, val, formValues)}</div>
                     </div>
                   );
                 })}

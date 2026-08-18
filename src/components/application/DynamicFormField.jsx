@@ -49,6 +49,14 @@ function formatMobile(raw) {
 }
 
 /**
+ * Detect if a field key relates to mobile/phone number
+ */
+function isMobileField(key) {
+  const k = (key || '').toLowerCase();
+  return k.includes('mobile') || k.includes('phone') || k.includes('contact_number') || k.includes('whatsapp');
+}
+
+/**
  * Detect if a field key relates to aadhaar
  */
 function isAadhaarField(key) {
@@ -56,12 +64,80 @@ function isAadhaarField(key) {
   return k.includes('aadhaar') || k.includes('aadhar') || k.includes('aadar') || k.includes('uid_number');
 }
 
-/**
- * Detect if a field key relates to mobile/phone number
- */
-function isMobileField(key) {
-  const k = (key || '').toLowerCase();
-  return k.includes('mobile') || k.includes('phone') || k.includes('contact_number') || k.includes('whatsapp');
+const STATE_NAME_TO_CODE = {
+  'tamil nadu': 'TN',
+  'kerala': 'KL',
+  'karnataka': 'KA',
+  'andhra pradesh': 'AP',
+  'telangana': 'TS',
+  'puducherry': 'PY',
+  'pondicherry': 'PY'
+};
+
+function normalizeStateValue(val) {
+  if (!val) return '';
+  const lower = String(val).trim().toLowerCase();
+  return STATE_NAME_TO_CODE[lower] || val;
+}
+
+function findParentValue(fieldKey, choices, formValues) {
+  if (!choices || typeof choices !== 'object' || Array.isArray(choices)) {
+    return null;
+  }
+  
+  const keyMap = {};
+  for (const key of Object.keys(choices)) {
+    keyMap[key.toLowerCase()] = key;
+  }
+  const possibleParentKeys = Object.keys(keyMap);
+  if (possibleParentKeys.length === 0) return null;
+  
+  const prefixes = ['', 'permanent_', 'communication_', 'present_', 'native_', 'parent_'];
+  const baseNames = ['state', 'country', 'region', 'nationality', 'category'];
+  
+  let currentPrefix = '';
+  for (const pf of prefixes) {
+    if (pf && fieldKey.startsWith(pf)) {
+      currentPrefix = pf;
+      break;
+    }
+  }
+  
+  for (const base of baseNames) {
+    const candidateKey = currentPrefix + base;
+    const candidateVal = formValues[candidateKey];
+    if (candidateVal) {
+      const normalized = normalizeStateValue(candidateVal);
+      const lowerVal = String(normalized).toLowerCase();
+      if (possibleParentKeys.includes(lowerVal)) {
+        return keyMap[lowerVal];
+      }
+    }
+  }
+
+  let bestMatchVal = null;
+  let highestScore = -1;
+  
+  for (const fKey of Object.keys(formValues)) {
+    const val = String(formValues[fKey] || '');
+    if (val) {
+      const normalized = normalizeStateValue(val);
+      const lowerVal = normalized.toLowerCase();
+      if (possibleParentKeys.includes(lowerVal)) {
+        let score = 0;
+        if (currentPrefix && fKey.startsWith(currentPrefix)) score += 10;
+        if (fKey.toLowerCase().includes('state')) score += 5;
+        if (fKey.toLowerCase() === 'state') score += 8;
+        
+        if (score > highestScore) {
+          highestScore = score;
+          bestMatchVal = keyMap[lowerVal];
+        }
+      }
+    }
+  }
+  
+  return bestMatchVal;
 }
 
 export function DynamicFormField({
@@ -86,6 +162,73 @@ export function DynamicFormField({
     description = '',
     columns = []
   } = field;
+
+  const isDependent = field.choices && !Array.isArray(field.choices) && typeof field.choices === 'object';
+  const parentVal = React.useMemo(() => {
+    if (!isDependent) return null;
+    return findParentValue(field_key, field.choices, formValues);
+  }, [isDependent, field_key, field.choices, formValues]);
+
+  React.useEffect(() => {
+    if (isDependent && value) {
+      const parentChoices = field.choices[parentVal] || [];
+      const normalized = normalizeOptions(parentChoices);
+      const isValid = normalized.some((opt) => String(opt.value) === String(value));
+      if (!isValid) {
+        onChange(field_key, '');
+      }
+    }
+  }, [isDependent, parentVal, value, field.choices, field_key, onChange]);
+
+  // Synchronize qualifications rows strictly based on UG / PG program selection
+  const isQualifications = field_key === 'qualifications' || field_key === 'academic_qualification' || field_key.includes('qualification');
+  const isPg = String(programLevel || '').toUpperCase() === 'PG';
+  const targetCount = isPg ? 3 : 2;
+
+  React.useEffect(() => {
+    if (field_type === 'array' && isQualifications) {
+      let currentList = Array.isArray(value) ? value : [];
+      let needsSync = currentList.length !== targetCount;
+
+      const synced = [];
+      // Row 0: SSLC (Fixed)
+      synced[0] = {
+        qualification: 'SSLC',
+        institution: currentList[0]?.institution || '',
+        board: currentList[0]?.board || '',
+        register_number: currentList[0]?.register_number || '',
+        year_of_passing: currentList[0]?.year_of_passing || '',
+        percentage: currentList[0]?.percentage || '',
+      };
+
+      // Row 1: HSC or Diploma (Default 'HSC')
+      const r1Qual = (currentList[1]?.qualification === 'Diploma' || currentList[1]?.qualification === 'HSC') ? currentList[1].qualification : 'HSC';
+      synced[1] = {
+        qualification: r1Qual,
+        institution: currentList[1]?.institution || '',
+        board: currentList[1]?.board || '',
+        register_number: currentList[1]?.register_number || '',
+        year_of_passing: currentList[1]?.year_of_passing || '',
+        percentage: currentList[1]?.percentage || '',
+      };
+
+      // Row 2: UG (Only if PG)
+      if (isPg) {
+        synced[2] = {
+          qualification: 'UG',
+          institution: currentList[2]?.institution || '',
+          board: currentList[2]?.board || '',
+          register_number: currentList[2]?.register_number || '',
+          year_of_passing: currentList[2]?.year_of_passing || '',
+          percentage: currentList[2]?.percentage || '',
+        };
+      }
+
+      if (needsSync || JSON.stringify(synced) !== JSON.stringify(currentList)) {
+        onChange(field_key, synced);
+      }
+    }
+  }, [field_type, isQualifications, isPg, targetCount, value, field_key, onChange]);
 
   // Render Special Custom Component for Academic Performance Marks (Matching paper format)
   if (field_key === 'academic_performance' || field_key.includes('performance')) {
@@ -133,7 +276,19 @@ export function DynamicFormField({
   // Render Radio Group Field
   if (field_type === 'radio') {
     const formattedOptions = normalizeOptions(options);
-    const finalOptions = formattedOptions.length > 0 ? formattedOptions : normalizeOptions(field.choices);
+    let finalOptions = [];
+    if (formattedOptions.length > 0) {
+      finalOptions = formattedOptions;
+    } else if (field.choices) {
+      if (Array.isArray(field.choices) || typeof field.choices === 'string') {
+        finalOptions = normalizeOptions(field.choices);
+      } else if (typeof field.choices === 'object') {
+        const parentChoices = field.choices[parentVal] || [];
+        finalOptions = normalizeOptions(parentChoices);
+      }
+    }
+
+    const disabled = isDependent && !parentVal;
 
     return (
       <div className="w-full space-y-2">
@@ -149,9 +304,10 @@ export function DynamicFormField({
                 value={opt.value}
                 checked={String(value || '') === String(opt.value)}
                 onChange={(e) => onChange(field_key, e.target.value)}
-                className="h-4 w-4 text-tec-navy focus:ring-tec-navy border-slate-300 cursor-pointer"
+                disabled={disabled}
+                className="h-4 w-4 text-tec-navy focus:ring-tec-navy border-slate-300 cursor-pointer disabled:opacity-50"
               />
-              <span className="text-sm font-medium text-slate-700">{opt.label}</span>
+              <span className={`text-sm font-medium ${disabled ? 'text-slate-400' : 'text-slate-700'}`}>{opt.label}</span>
             </label>
           ))}
         </div>
@@ -170,18 +326,33 @@ export function DynamicFormField({
   // Render Select / Dropdown Field
   if (field_type === 'select') {
     const formattedOptions = normalizeOptions(options);
-    const finalOptions = formattedOptions.length > 0 ? formattedOptions : normalizeOptions(field.choices);
+    let finalOptions = [];
+    if (formattedOptions.length > 0) {
+      finalOptions = formattedOptions;
+    } else if (field.choices) {
+      if (Array.isArray(field.choices) || typeof field.choices === 'string') {
+        finalOptions = normalizeOptions(field.choices);
+      } else if (typeof field.choices === 'object') {
+        const parentChoices = field.choices[parentVal] || [];
+        finalOptions = normalizeOptions(parentChoices);
+      }
+    }
+
+    const displayPlaceholder = isDependent && !parentVal
+      ? 'Select Parent Field First'
+      : (placeholder || `Select ${field_label}`);
 
     return (
       <Select
         label={field_label}
         required={required}
         options={finalOptions}
-        placeholder={placeholder || `Select ${field_label}`}
+        placeholder={displayPlaceholder}
         value={value || ''}
         onChange={(e) => onChange(field_key, e.target.value)}
         error={error}
         helperText={description}
+        disabled={isDependent && !parentVal}
       />
     );
   }
@@ -250,7 +421,6 @@ export function DynamicFormField({
     const list = Array.isArray(value) ? value : [];
     const isQualifications = field_key === 'qualifications' || field_key === 'academic_qualification' || field_key.includes('qualification');
     const isPg = String(programLevel || '').toUpperCase() === 'PG';
-    const targetCount = isPg ? 3 : 2;
 
     const cols = (field.choices && field.choices.length > 0) ? field.choices : (columns && columns.length > 0 ? columns : [
       { key: 'qualification', label: 'Qualification', type: 'select', options: ['SSLC', 'HSC', 'Diploma', 'UG'] },
@@ -261,51 +431,6 @@ export function DynamicFormField({
       { key: 'percentage', label: 'Percentage', type: 'number' }
     ]);
 
-    // Synchronize qualifications rows strictly based on UG / PG program selection
-    React.useEffect(() => {
-      if (isQualifications) {
-        let currentList = Array.isArray(value) ? value : [];
-        let needsSync = currentList.length !== targetCount;
-
-        const synced = [];
-        // Row 0: SSLC (Fixed)
-        synced[0] = {
-          qualification: 'SSLC',
-          institution: currentList[0]?.institution || '',
-          board: currentList[0]?.board || '',
-          register_number: currentList[0]?.register_number || '',
-          year_of_passing: currentList[0]?.year_of_passing || '',
-          percentage: currentList[0]?.percentage || '',
-        };
-
-        // Row 1: HSC or Diploma (Default 'HSC')
-        const r1Qual = (currentList[1]?.qualification === 'Diploma' || currentList[1]?.qualification === 'HSC') ? currentList[1].qualification : 'HSC';
-        synced[1] = {
-          qualification: r1Qual,
-          institution: currentList[1]?.institution || '',
-          board: currentList[1]?.board || '',
-          register_number: currentList[1]?.register_number || '',
-          year_of_passing: currentList[1]?.year_of_passing || '',
-          percentage: currentList[1]?.percentage || '',
-        };
-
-        // Row 2: UG (Only if PG)
-        if (isPg) {
-          synced[2] = {
-            qualification: 'UG',
-            institution: currentList[2]?.institution || '',
-            board: currentList[2]?.board || '',
-            register_number: currentList[2]?.register_number || '',
-            year_of_passing: currentList[2]?.year_of_passing || '',
-            percentage: currentList[2]?.percentage || '',
-          };
-        }
-
-        if (needsSync || JSON.stringify(synced) !== JSON.stringify(currentList)) {
-          onChange(field_key, synced);
-        }
-      }
-    }, [isQualifications, isPg, targetCount, value, field_key, onChange]);
 
     return (
       <div className="w-full space-y-3 col-span-full">

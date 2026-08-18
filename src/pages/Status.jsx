@@ -66,7 +66,7 @@ export function Status() {
   // User display values
   const displayName = user?.fullName || user?.name || user?.username || 'Applicant';
   const displayEmail = user?.email || '—';
-  const displayMobile = user?.mobile || user?.phone || user?.mobileNumber || '—';
+  const displayMobile = user?.phone_number || '—';
   const initials = displayName.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2);
 
   return (

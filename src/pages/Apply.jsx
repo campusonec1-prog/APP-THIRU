@@ -257,6 +257,7 @@ export function Apply() {
   // Validate Specific Module Fields (Highlight ONLY ONE field at a time for clean UX)
   const validateModuleFields = (moduleFields, stopAtFirst = true) => {
     const newErrors = {};
+    const isPg = String(selectedDegree || '').toUpperCase() === 'PG';
     for (const field of moduleFields) {
       const val = formValues[field.field_key];
       const key = (field.field_key || '').toLowerCase();
@@ -265,7 +266,6 @@ export function Apply() {
       if (field.required) {
         if (field.field_type === 'array') {
           const isQual = field.field_key === 'qualifications' || field.field_key.includes('qualification');
-          const isPg = String(selectedDegree || '').toUpperCase() === 'PG';
           const expectedCount = isQual ? (isPg ? 3 : 2) : 1;
 
           if (!val || !Array.isArray(val) || val.length < expectedCount) {

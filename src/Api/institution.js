@@ -41,7 +41,7 @@ export async function getAcademicYearsList() {
  * GET /forms/modules/list
  */
 export async function getFormModulesList() {
-  const response = await axiosInstance.get('/forms/modules/list');
+  const response = await axiosInstance.get('/forms/modules/list?pagination=false');
   return response.data?.data || response.data;
 }
 
@@ -50,6 +50,6 @@ export async function getFormModulesList() {
  * GET /forms/fields/list
  */
 export async function getFormFieldsList() {
-  const response = await axiosInstance.get('/forms/fields/list');
+  const response = await axiosInstance.get('/forms/fields/list?pagination=false');
   return response.data?.data || response.data;
 }
