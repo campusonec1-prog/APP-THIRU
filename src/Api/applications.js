@@ -61,3 +61,14 @@ export async function initiatePayment(applicationId) {
   const response = await axiosInstance.post('/payments/initiate', { applicationId });
   return response.data;
 }
+
+/**
+ * Download Application PDF Document from Backend
+ * GET /forms/applications/download-pdf/{id}
+ */
+export async function downloadApplicationPDF(applicationId) {
+  const response = await axiosInstance.get(`/forms/applications/download-pdf/${applicationId}`, {
+    responseType: 'blob',
+  });
+  return response.data;
+}

@@ -237,19 +237,53 @@ export function ApplicationReview({
 }) {
   const [localPhotoBlob, setLocalPhotoBlob] = React.useState(null);
 
+  // Flatten formValues if it is module-nested (e.g. from backend response)
+  const flatValues = React.useMemo(() => {
+    if (!formValues) return {};
+    
+    // Check if the formValues object itself is flat or nested.
+    // If it has keys like "personal_information", "parent_information" containing objects, it's nested.
+    let isNested = false;
+    const nestedKeys = ['personal_information', 'parent_information', 'course_selection', 'academic_qualification', 'academic_performance', 'certificates', 'declaration'];
+    
+    for (const key of Object.keys(formValues)) {
+      if (nestedKeys.includes(key) && formValues[key] && typeof formValues[key] === 'object' && !Array.isArray(formValues[key])) {
+        isNested = true;
+        break;
+      }
+    }
+    
+    if (!isNested) {
+      return formValues;
+    }
+    
+    // Flatten it
+    const flat = {};
+    for (const [moduleKey, moduleData] of Object.entries(formValues)) {
+      if (moduleData && typeof moduleData === 'object' && !Array.isArray(moduleData) && !(moduleData instanceof File)) {
+        for (const [fieldKey, fieldValue] of Object.entries(moduleData)) {
+          flat[fieldKey] = fieldValue;
+        }
+      } else {
+        flat[moduleKey] = moduleData;
+      }
+    }
+    return flat;
+  }, [formValues]);
+
   // Dynamically generate a temporary object URL if the user uploaded a raw File object that is not yet serialized
   React.useEffect(() => {
     let rawFile = null;
-    if (formValues.photo) {
-      if (formValues.photo instanceof File) {
-        rawFile = formValues.photo;
-      } else if (formValues.photo.file instanceof File) {
-        rawFile = formValues.photo.file;
+    if (flatValues.photo) {
+      if (flatValues.photo instanceof File) {
+        rawFile = flatValues.photo;
+      } else if (flatValues.photo.file instanceof File) {
+        rawFile = flatValues.photo.file;
       }
     }
     
     if (!rawFile) {
-      const certs = formValues.certificates || [];
+      const certs = flatValues.certificates || [];
       const photoCert = certs.find(
         (c) =>
           c &&
@@ -279,21 +313,21 @@ export function ApplicationReview({
     } else {
       setLocalPhotoBlob(null);
     }
-  }, [formValues]);
+  }, [flatValues]);
 
   // Extract photo URL from formValues or certificates list
   const photoUrl = React.useMemo(() => {
     if (localPhotoBlob) return localPhotoBlob;
 
-    if (formValues.photo) {
-      if (typeof formValues.photo === 'string') return formValues.photo;
-      if (typeof formValues.photo === 'object') {
-        const url = formValues.photo.previewUrl || formValues.photo.url;
+    if (flatValues.photo) {
+      if (typeof flatValues.photo === 'string') return flatValues.photo;
+      if (typeof flatValues.photo === 'object') {
+        const url = flatValues.photo.previewUrl || flatValues.photo.url;
         if (url && typeof url === 'string') return url;
       }
     }
     
-    const certs = formValues.certificates || [];
+    const certs = flatValues.certificates || [];
     const photoCert = certs.find(
       (c) =>
         c &&
@@ -316,7 +350,7 @@ export function ApplicationReview({
     }
     
     return null;
-  }, [formValues, localPhotoBlob]);
+  }, [flatValues, localPhotoBlob]);
 
   return (
     <div className="space-y-6">
@@ -412,7 +446,7 @@ export function ApplicationReview({
               {/* Module Fields Summary Grid */}
               <div className="p-6 grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
                 {modFields.map((field) => {
-                  const val = formValues[field.field_key];
+                  const val = flatValues[field.field_key];
                   const isFullWidth = field.field_type === 'array' || field.field_type === 'file' || field.field_type === 'textarea';
 
                   return (
@@ -425,7 +459,7 @@ export function ApplicationReview({
                       <span className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider">
                         {field.field_label} {field.required && <span className="text-rose-500">*</span>}
                       </span>
-                      <div>{renderValue(field, val, formValues)}</div>
+                      <div>{renderValue(field, val, flatValues)}</div>
                     </div>
                   );
                 })}

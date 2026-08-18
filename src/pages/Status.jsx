@@ -1,15 +1,23 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Link, useNavigate, Navigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { getDepartmentsList, getProgramsList } from '../Api';
+import { 
+  getDepartmentsList, 
+  getProgramsList, 
+  getFormModulesList, 
+  getFormFieldsList, 
+  getCollegeHeadersList,
+  downloadApplicationPDF
+} from '../Api';
 import { COLLEGE_CONFIG } from '../Config/collegeConfig';
+import { ApplicationReview } from '../components/application/ApplicationReview';
 import {
   User, Mail, Phone, FileText, ArrowRight,
   BookOpen, Inbox, ChevronRight, RefreshCw
 } from 'lucide-react';
 
 export function Status() {
-  const { user, application, refreshApplicationStatus, academicYear } = useAuth();
+  const { user, application, refreshApplicationStatus, academicYear, showToast } = useAuth();
   const navigate = useNavigate();
 
 
@@ -18,22 +26,72 @@ export function Status() {
   const [loading, setLoading] = useState(true);
   const [departments, setDepartments] = useState([]);
   const [programsMap, setProgramsMap] = useState({});
+  const [modules, setModules] = useState([]);
+  const [fields, setFields] = useState([]);
+  const [collegeHeader, setCollegeHeader] = useState(null);
+  const [downloading, setDownloading] = useState(false);
+
+  const handleDownloadPDF = async () => {
+    if (!application?.id) return;
+    try {
+      setDownloading(true);
+      if (showToast) showToast('Generating application PDF...', 'info');
+      const blobData = await downloadApplicationPDF(application.id);
+      
+      const fileBlob = new Blob([blobData], { type: 'application/pdf' });
+      const fileURL = URL.createObjectURL(fileBlob);
+      
+      const link = document.createElement('a');
+      link.href = fileURL;
+      link.download = `Application_${application.application_no || 'Form'}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(fileURL);
+      
+      if (showToast) showToast('PDF downloaded successfully!', 'success');
+    } catch (err) {
+      console.error('Failed to download PDF:', err);
+      if (showToast) showToast('Failed to download PDF. Please try again.', 'error');
+    } finally {
+      setDownloading(false);
+    }
+  };
 
   const fetchAcademicData = useCallback(async () => {
     try {
       setLoading(true);
-      const [deptsData, progsData] = await Promise.all([
+      const [deptsData, progsData, modulesData, fieldsData, headersData] = await Promise.all([
         getDepartmentsList().catch(() => []),
         getProgramsList().catch(() => []),
+        getFormModulesList().catch(() => []),
+        getFormFieldsList().catch(() => []),
+        getCollegeHeadersList().catch(() => []),
       ]);
       const rawDepts = Array.isArray(deptsData) ? deptsData : (deptsData?.data || []);
       const rawProgs = Array.isArray(progsData) ? progsData : (progsData?.data || []);
+      const rawModules = Array.isArray(modulesData) ? modulesData : (modulesData?.data || []);
+      const rawFields = Array.isArray(fieldsData) ? fieldsData : (fieldsData?.data || []);
+      const rawHeaders = headersData?.results || 
+                         headersData?.data?.results || 
+                         (Array.isArray(headersData) ? headersData : 
+                         (Array.isArray(headersData?.data) ? headersData.data : []));
+
       const pMap = {};
       rawProgs.forEach((p) => { pMap[p.id] = p; });
       setProgramsMap(pMap);
       setDepartments(rawDepts);
+
+      const sortedModules = rawModules
+        .filter((m) => m.is_active !== false)
+        .sort((a, b) => (a.display_order || 0) - (b.display_order || 0));
+      setModules(sortedModules);
+      setFields(rawFields.filter((f) => f.is_active !== false));
+      if (rawHeaders.length > 0) {
+        setCollegeHeader(rawHeaders[0]);
+      }
     } catch (err) {
-      console.error('Failed to fetch academic programs:', err);
+      console.error('Failed to fetch academic programs & form schema:', err);
     } finally {
       setLoading(false);
     }
@@ -153,18 +211,38 @@ export function Status() {
                   <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-3">
                     <div className="flex items-center justify-between">
                       <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Application Number</span>
-                      <span className="text-sm font-extrabold text-tec-navy">{application.application_no || application.applicationNo || application.applicationId || 'N/A'}</span>
+                      <span className="text-sm font-extrabold text-tec-navy">{application.application_no || 'N/A'}</span>
                     </div>
                     <div className="flex items-center justify-between">
                       <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Status</span>
                       <span className={`text-xs font-extrabold px-3 py-1 rounded-full ${
-                        application.status === 'Approved' ? 'bg-emerald-100 text-emerald-800' :
-                        application.status === 'Rejected' ? 'bg-rose-100 text-rose-800' :
+                        application.status_name === 'Approved' ? 'bg-emerald-100 text-emerald-800' :
+                        application.status_name === 'Rejected' ? 'bg-rose-100 text-rose-800' :
                         'bg-amber-100 text-amber-800'
                       }`}>
-                        {application.status || 'Pending'}
+                        {application.status_name || 'Pending'}
                       </span>
                     </div>
+                  </div>
+
+                  <div className="pt-2 no-print">
+                    <button
+                      onClick={handleDownloadPDF}
+                      disabled={downloading}
+                      className="w-full py-3.5 px-5 rounded-xl bg-tec-gold hover:bg-tec-gold-hover text-slate-950 font-black text-sm flex items-center justify-center gap-2 shadow-md transition cursor-pointer border border-amber-300 disabled:opacity-50"
+                    >
+                      {downloading ? (
+                        <>
+                          <div className="w-4 h-4 border-2 border-slate-950 border-t-transparent rounded-full animate-spin" />
+                          <span>Generating PDF...</span>
+                        </>
+                      ) : (
+                        <>
+                          <FileText className="w-4 h-4 text-slate-950" />
+                          <span>Download PDF Application</span>
+                        </>
+                      )}
+                    </button>
                   </div>
                 </div>
               ) : (
@@ -275,6 +353,19 @@ export function Status() {
           )}
         </div>
 
+      </div>
+
+      {/* Print-Only Application Review View (Hidden on Screen, visible in Print layout) */}
+      <div className="hidden print:block print-page">
+        {application && (
+          <ApplicationReview
+            modules={modules}
+            fields={fields}
+            formValues={application.form_data}
+            selectedProgramName={application.program_name}
+            collegeHeader={collegeHeader}
+          />
+        )}
       </div>
     </div>
   );

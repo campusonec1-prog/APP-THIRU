@@ -999,7 +999,7 @@ export function Apply() {
         )}
 
         {/* Top Header Banner */}
-        <div className="bg-tec-navy text-white rounded-2xl p-6 sm:p-8 shadow-xl flex flex-col lg:flex-row lg:items-center justify-between gap-6 border-b-4 border-tec-gold">
+        <div className="bg-tec-navy text-white rounded-2xl p-6 sm:p-8 shadow-xl flex flex-col lg:flex-row lg:items-center justify-between gap-6 border-b-4 border-tec-gold no-print">
           <div>
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded bg-white/10 text-tec-gold text-xs font-bold mb-2">
               <ShieldCheck className="w-4 h-4" />
@@ -1048,7 +1048,7 @@ export function Apply() {
         <div className="flex items-start gap-6">
           
           {/* Left Sidebar Stepper Navigation */}
-          <div className="hidden lg:block w-72 shrink-0 sticky top-24 self-start z-10">
+          <div className="hidden lg:block w-72 shrink-0 sticky top-24 self-start z-10 no-print">
             <div className="bg-white rounded-2xl border border-slate-200 shadow-lg overflow-hidden">
               <div className="px-5 pt-5 pb-3 border-b border-slate-100 flex items-center justify-between">
                 <div>
