@@ -47,6 +47,51 @@ function dataURLtoFile(dataurl, filename) {
   return new File([u8arr], filename, { type: mime });
 }
 
+const DB_NAME = 'TEC_Draft_DB';
+const STORE_NAME = 'drafts';
+
+function saveDraftToIndexedDB(draft) {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(DB_NAME, 1);
+    request.onupgradeneeded = (e) => {
+      const db = e.target.result;
+      if (!db.objectStoreNames.contains(STORE_NAME)) {
+        db.createObjectStore(STORE_NAME);
+      }
+    };
+    request.onsuccess = (e) => {
+      const db = e.target.result;
+      const transaction = db.transaction(STORE_NAME, 'readwrite');
+      const store = transaction.objectStore(STORE_NAME);
+      const putRequest = store.put(draft, 'current_draft');
+      putRequest.onsuccess = () => resolve();
+      putRequest.onerror = (err) => reject(err);
+    };
+    request.onerror = (err) => reject(err);
+  });
+}
+
+function loadDraftFromIndexedDB() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(DB_NAME, 1);
+    request.onupgradeneeded = (e) => {
+      const db = e.target.result;
+      if (!db.objectStoreNames.contains(STORE_NAME)) {
+        db.createObjectStore(STORE_NAME);
+      }
+    };
+    request.onsuccess = (e) => {
+      const db = e.target.result;
+      const transaction = db.transaction(STORE_NAME, 'readonly');
+      const store = transaction.objectStore(STORE_NAME);
+      const getRequest = store.get('current_draft');
+      getRequest.onsuccess = () => resolve(getRequest.result);
+      getRequest.onerror = (err) => reject(err);
+    };
+    request.onerror = (err) => reject(err);
+  });
+}
+
 export function Apply() {
   const { user, showToast, academicYear, setApplication } = useAuth();
   const navigate = useNavigate();
@@ -80,67 +125,82 @@ export function Apply() {
   const [submittedApplication, setSubmittedApplication] = useState(null);
   const [collegeHeaderData, setCollegeHeaderData] = useState(null);
 
-  // Load draft from localStorage on mount
+  // Load draft on mount (IndexedDB with LocalStorage fallback)
   useEffect(() => {
-    const rawDraft = localStorage.getItem('tec_application_draft');
-    if (rawDraft) {
+    const loadDraft = async () => {
       try {
-        const parsed = JSON.parse(rawDraft);
-        if (parsed && parsed.formValues) {
-          // Deserialize files from draft
-          const deserializedFormValues = {};
-          for (const [key, value] of Object.entries(parsed.formValues)) {
-            if (value && typeof value === 'object') {
-              if (value.__is_draft_file) {
-                try {
-                  const restoredFile = dataURLtoFile(value.data, value.name);
-                  deserializedFormValues[key] = {
-                    file: restoredFile,
-                    name: value.name,
-                    size: value.size,
-                    type: value.type,
-                    previewUrl: value.type.startsWith('image/') ? value.data : null,
-                    uploadedAt: new Date().toLocaleDateString(),
-                  };
-                } catch (err) {
-                  console.error('Failed to restore file from draft:', err);
+        let parsed = null;
+        
+        // Try IndexedDB first
+        try {
+          parsed = await loadDraftFromIndexedDB();
+        } catch (dbErr) {
+          console.error('Failed to load draft from IndexedDB:', dbErr);
+        }
+        
+        // Fallback to localStorage
+        if (!parsed) {
+          const rawDraft = localStorage.getItem('tec_application_draft');
+          if (rawDraft) {
+            const tempParsed = JSON.parse(rawDraft);
+            if (tempParsed && tempParsed.formValues) {
+              // Deserialize files from localStorage base64 format
+              const deserializedFormValues = {};
+              for (const [key, value] of Object.entries(tempParsed.formValues)) {
+                if (value && typeof value === 'object') {
+                  if (value.__is_draft_file) {
+                    try {
+                      const restoredFile = dataURLtoFile(value.data, value.name);
+                      deserializedFormValues[key] = {
+                        file: restoredFile,
+                        name: value.name,
+                        size: value.size,
+                        type: value.type,
+                        previewUrl: value.type.startsWith('image/') ? value.data : null,
+                        uploadedAt: new Date().toLocaleDateString(),
+                      };
+                    } catch (err) {
+                      deserializedFormValues[key] = value;
+                    }
+                  } else if (Array.isArray(value)) {
+                    const deserializedArray = [];
+                    for (const item of value) {
+                      if (item && typeof item === 'object' && item.document && item.document.__is_draft_file) {
+                        try {
+                          const restoredFile = dataURLtoFile(item.document.data, item.document.name);
+                          deserializedArray.push({
+                            ...item,
+                            document: {
+                              file: restoredFile,
+                              name: item.document.name,
+                              size: item.document.size,
+                              type: item.document.type,
+                              previewUrl: item.document.type.startsWith('image/') ? item.document.data : null,
+                              uploadedAt: new Date().toLocaleDateString(),
+                            }
+                          });
+                        } catch (err) {
+                          deserializedArray.push(item);
+                        }
+                      } else {
+                        deserializedArray.push(item);
+                      }
+                    }
+                    deserializedFormValues[key] = deserializedArray;
+                  } else {
+                    deserializedFormValues[key] = value;
+                  }
+                } else {
                   deserializedFormValues[key] = value;
                 }
-              } else if (Array.isArray(value)) {
-                const deserializedArray = [];
-                for (const item of value) {
-                  if (item && typeof item === 'object' && item.document && item.document.__is_draft_file) {
-                    try {
-                      const restoredFile = dataURLtoFile(item.document.data, item.document.name);
-                      deserializedArray.push({
-                        ...item,
-                        document: {
-                          file: restoredFile,
-                          name: item.document.name,
-                          size: item.document.size,
-                          type: item.document.type,
-                          previewUrl: item.document.type.startsWith('image/') ? item.document.data : null,
-                          uploadedAt: new Date().toLocaleDateString(),
-                        }
-                      });
-                    } catch (err) {
-                      console.error('Failed to restore array item file:', err);
-                      deserializedArray.push(item);
-                    }
-                  } else {
-                    deserializedArray.push(item);
-                  }
-                }
-                deserializedFormValues[key] = deserializedArray;
-              } else {
-                deserializedFormValues[key] = value;
               }
-            } else {
-              deserializedFormValues[key] = value;
+              parsed = { ...tempParsed, formValues: deserializedFormValues };
             }
           }
+        }
 
-          setFormValues(deserializedFormValues);
+        if (parsed && parsed.formValues) {
+          setFormValues(parsed.formValues);
           if (parsed.currentModuleIndex !== undefined) {
             setCurrentModuleIndex(parsed.currentModuleIndex);
           }
@@ -155,7 +215,9 @@ export function Apply() {
       } catch (e) {
         console.error('Failed to parse saved draft:', e);
       }
-    }
+    };
+    
+    loadDraft();
   }, [showToast]);
 
   // Fetch Academic Programs, Departments, Form-Modules, and Form-Fields
@@ -288,94 +350,53 @@ export function Apply() {
     return requiredCount > 0 ? Math.round((filledCount / requiredCount) * 100) : 0;
   }, [fields, formValues]);
 
-  // Save Draft to localStorage
+  // Save Draft to IndexedDB
   const handleSaveDraft = async () => {
     try {
       const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
       
-      // Serialize formValues, converting File objects to base64 strings
-      const serializedFormValues = {};
-      
-      for (const [key, value] of Object.entries(formValues)) {
-        if (value && typeof value === 'object') {
-          // Check if it is a FileUpload structure (with file property)
-          const rawFile = value.file instanceof File ? value.file : (value instanceof File ? value : null);
-          if (rawFile) {
-            try {
-              const base64Data = await fileToDataURL(rawFile);
-              serializedFormValues[key] = {
-                __is_draft_file: true,
-                name: value.name || rawFile.name,
-                size: value.size || ((rawFile.size / 1024).toFixed(1) + ' KB'),
-                type: value.type || rawFile.type,
-                data: base64Data,
-              };
-            } catch (err) {
-              console.error('Failed to convert file to data URL:', err);
-              serializedFormValues[key] = value;
-            }
-          } else if (Array.isArray(value)) {
-            // Check if it's an array of files (e.g. certificates list)
-            const serializedArray = [];
-            for (const item of value) {
-              if (item && typeof item === 'object') {
-                const itemFile = item.document?.file instanceof File ? item.document.file : (item.document instanceof File ? item.document : null);
-                if (itemFile) {
-                  try {
-                    const base64Data = await fileToDataURL(itemFile);
-                    serializedArray.push({
-                      ...item,
-                      document: {
-                        __is_draft_file: true,
-                        name: item.document.name || itemFile.name,
-                        size: item.document.size || ((itemFile.size / 1024).toFixed(1) + ' KB'),
-                        type: item.document.type || itemFile.type,
-                        data: base64Data,
-                      }
-                    });
-                  } catch (err) {
-                    console.error('Failed to convert array item file to data URL:', err);
-                    serializedArray.push(item);
-                  }
-                } else {
-                  serializedArray.push(item);
-                }
-              } else {
-                serializedArray.push(item);
-              }
-            }
-            serializedFormValues[key] = serializedArray;
-          } else {
-            serializedFormValues[key] = value;
-          }
-        } else {
-          serializedFormValues[key] = value;
-        }
-      }
-
       const draftPayload = {
-        formValues: serializedFormValues,
+        formValues: formValues, // Store raw File objects directly in IndexedDB!
         currentModuleIndex,
         selectedProgramId,
         savedAt: timeStr,
       };
-      localStorage.setItem('tec_application_draft', JSON.stringify(draftPayload));
+      
+      await saveDraftToIndexedDB(draftPayload);
+      
+      // Also save a small text key in localStorage so other parts of the app know a draft exists
+      localStorage.setItem('tec_application_draft_meta', JSON.stringify({
+        selectedProgramId,
+        savedAt: timeStr,
+      }));
+
       setDraftSavedAt(timeStr);
       showToast(`Application draft saved at ${timeStr}`, 'success');
     } catch (e) {
       console.error('Failed to save application draft:', e);
-      if (e.name === 'QuotaExceededError' || e.code === 22) {
-        showToast('Draft size limit exceeded. Please reduce the size of your uploaded photo or files.', 'error');
-      } else {
-        showToast('Failed to save application draft.', 'error');
-      }
+      showToast('Failed to save application draft.', 'error');
     }
   };
 
   // Reset Form
-  const handleResetForm = () => {
+  const handleResetForm = async () => {
     if (!window.confirm('Reset the entire application form? This will clear all entered data.')) return;
-    localStorage.removeItem('tec_application_draft');
+    
+    try {
+      localStorage.removeItem('tec_application_draft');
+      localStorage.removeItem('tec_application_draft_meta');
+      // Clear IndexedDB draft
+      const request = indexedDB.open(DB_NAME, 1);
+      request.onsuccess = (e) => {
+        const db = e.target.result;
+        const transaction = db.transaction(STORE_NAME, 'readwrite');
+        const store = transaction.objectStore(STORE_NAME);
+        store.delete('current_draft');
+      };
+    } catch (err) {
+      console.error('Failed to clear IndexedDB draft:', err);
+    }
+    
     setFormValues({});
     setCurrentModuleIndex(0);
     setErrors({});
@@ -451,17 +472,34 @@ export function Apply() {
 
           if (isSemesterMode) {
             const compulsorySemesters = ['Semester I', 'Semester II', 'Semester III', 'Semester IV', 'Semester V', 'Semester VI'];
+            const gradingSystem = list[0]?.grading_system || 'grade';
+            
             for (const semLabel of compulsorySemesters) {
               const row = list.find((r) => r.semester === semLabel || r.subject === semLabel);
-              if (!row || row.obtained_marks === undefined || row.obtained_marks === null || String(row.obtained_marks).trim() === '') {
-                err = `Academic Performance: ${semLabel} obtained marks are required`;
-                break;
-              }
-              const max = parseFloat(row.maximum_marks) || 0;
-              const obt = parseFloat(row.obtained_marks) || 0;
-              if (obt > max) {
-                err = `Academic Performance: ${semLabel} obtained marks cannot exceed maximum marks (${max})`;
-                break;
+              if (isPg) {
+                const labelName = gradingSystem === 'grade' ? 'CGPA' : 'Percentage';
+                const maxVal = gradingSystem === 'grade' ? 10 : 100;
+                
+                if (!row || row.obtained_marks === undefined || row.obtained_marks === null || String(row.obtained_marks).trim() === '') {
+                  err = `Academic Performance: ${semLabel} ${labelName} is required`;
+                  break;
+                }
+                const obt = parseFloat(row.obtained_marks) || 0;
+                if (obt < 0 || obt > maxVal) {
+                  err = `Academic Performance: ${semLabel} ${labelName} must be between 0 and ${maxVal}`;
+                  break;
+                }
+              } else {
+                if (!row || row.obtained_marks === undefined || row.obtained_marks === null || String(row.obtained_marks).trim() === '') {
+                  err = `Academic Performance: ${semLabel} obtained marks are required`;
+                  break;
+                }
+                const max = parseFloat(row.maximum_marks) || 0;
+                const obt = parseFloat(row.obtained_marks) || 0;
+                if (obt > max) {
+                  err = `Academic Performance: ${semLabel} obtained marks cannot exceed maximum marks (${max})`;
+                  break;
+                }
               }
             }
           } else {
@@ -857,7 +895,22 @@ export function Apply() {
       // Update AuthContext & UI State
       setApplication(appData);
       setSubmittedApplication(appData);
+      
+      // Clear drafts
       localStorage.removeItem('tec_application_draft');
+      localStorage.removeItem('tec_application_draft_meta');
+      try {
+        const request = indexedDB.open(DB_NAME, 1);
+        request.onsuccess = (e) => {
+          const db = e.target.result;
+          const transaction = db.transaction(STORE_NAME, 'readwrite');
+          const store = transaction.objectStore(STORE_NAME);
+          store.delete('current_draft');
+        };
+      } catch (err) {
+        console.error('Failed to clear IndexedDB draft:', err);
+      }
+      
       showToast('Application submitted successfully!', 'success');
 
     } catch (err) {

@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { CheckCircle2, ArrowRight, ShieldCheck, Copy, FileText, Check, AlertCircle } from 'lucide-react';
 import { COLLEGE_CONFIG } from '../../Config/collegeConfig';
 import { downloadApplicationPDF } from '../../Api';
-import { useAuth } from '../../Context/AuthContext';
+import { useAuth } from '../../context/AuthContext';
 
 export function ApplicationConfirmationModal({
   applicationData,

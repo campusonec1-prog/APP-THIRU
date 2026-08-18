@@ -885,13 +885,63 @@ function AcademicPerformanceRenderer({ field_label, required, value, onChange, e
     onChange('academic_performance', list);
   };
 
+  // Ensure active list is properly initialized in state for PG Semesters
+  React.useEffect(() => {
+    if (isSemesterMode && isPg) {
+      const currentList = Array.isArray(value) ? value : [];
+      const hasPgSemesters = currentList.length > 0 && currentList.every((r) => r.qualification === 'UG');
+      
+      if (!hasPgSemesters) {
+        const defaultGradingSystem = currentList[0]?.grading_system || 'grade';
+        const defaultMax = defaultGradingSystem === 'grade' ? '10' : '100';
+        
+        const newList = semesterLabels.map((semLabel, idx) => {
+          const existing = currentList.find((r) => r.semester === semLabel || r.subject === semLabel);
+          return {
+            qualification: 'UG',
+            semester: semLabel,
+            subject: semLabel,
+            grading_system: defaultGradingSystem,
+            maximum_marks: defaultMax,
+            obtained_marks: existing?.obtained_marks || '',
+            percentage: existing?.percentage || '0.00'
+          };
+        });
+        onChange('academic_performance', newList);
+      }
+    }
+  }, [isSemesterMode, isPg, semesterLabels, value, onChange]);
+
+  const handleGradingSystemChange = (newSystem) => {
+    const currentList = Array.isArray(value) ? value : [];
+    const maxVal = newSystem === 'grade' ? '10' : '100';
+    const newList = currentList.map((r) => ({
+      ...r,
+      grading_system: newSystem,
+      maximum_marks: maxVal,
+      obtained_marks: '',
+      percentage: '0.00'
+    }));
+    onChange('academic_performance', newList);
+  };
+
   // Handle Semester Row Change
   const handleSemRowChange = (semLabel, fieldName, val) => {
     const qual = isPg ? 'UG' : 'Diploma';
     const list = Array.isArray(value) ? [...value] : [];
     let rowIdx = list.findIndex((r) => r.semester === semLabel || r.subject === semLabel);
     if (rowIdx === -1) {
-      list.push({ qualification: qual, semester: semLabel, subject: semLabel, maximum_marks: '1000', obtained_marks: '', percentage: '0.00' });
+      const defaultGradingSystem = list[0]?.grading_system || 'grade';
+      const defaultMax = isPg ? (defaultGradingSystem === 'grade' ? '10' : '100') : '1000';
+      list.push({ 
+        qualification: qual, 
+        semester: semLabel, 
+        subject: semLabel, 
+        grading_system: isPg ? defaultGradingSystem : undefined,
+        maximum_marks: defaultMax, 
+        obtained_marks: '', 
+        percentage: '0.00' 
+      });
       rowIdx = list.length - 1;
     }
 
@@ -904,12 +954,20 @@ function AcademicPerformanceRenderer({ field_label, required, value, onChange, e
     }
 
     const updatedRow = { ...list[rowIdx], qualification: qual, semester: semLabel, subject: semLabel, [fieldName]: cleanVal };
-    const max = parseFloat(fieldName === 'maximum_marks' ? cleanVal : updatedRow.maximum_marks) || 0;
-    const obt = parseFloat(fieldName === 'obtained_marks' ? cleanVal : updatedRow.obtained_marks) || 0;
-    if (max > 0 && !isNaN(obt)) {
-      updatedRow.percentage = ((obt / max) * 100).toFixed(2);
+    
+    if (isPg) {
+      const gradingSys = list[0]?.grading_system || 'grade';
+      updatedRow.grading_system = gradingSys;
+      updatedRow.maximum_marks = gradingSys === 'grade' ? '10' : '100';
+      updatedRow.percentage = cleanVal || '0.00';
     } else {
-      updatedRow.percentage = '0.00';
+      const max = parseFloat(fieldName === 'maximum_marks' ? cleanVal : updatedRow.maximum_marks) || 0;
+      const obt = parseFloat(fieldName === 'obtained_marks' ? cleanVal : updatedRow.obtained_marks) || 0;
+      if (max > 0 && !isNaN(obt)) {
+        updatedRow.percentage = ((obt / max) * 100).toFixed(2);
+      } else {
+        updatedRow.percentage = '0.00';
+      }
     }
 
     list[rowIdx] = updatedRow;
@@ -917,6 +975,7 @@ function AcademicPerformanceRenderer({ field_label, required, value, onChange, e
   };
 
   const list = Array.isArray(value) ? value : [];
+  const gradingSystem = list[0]?.grading_system || 'grade';
 
   return (
     <div className="w-full space-y-4 col-span-full border border-slate-200 rounded-2xl p-5 bg-white shadow-xs">
@@ -1095,15 +1154,49 @@ function AcademicPerformanceRenderer({ field_label, required, value, onChange, e
       {/* MODE 2: Semester Marks Table (Diploma / UG Degree) */}
       {isSemesterMode && (
         <div className="space-y-3">
+          {isPg && (
+            <div className="flex items-center gap-3 bg-slate-50 p-1.5 rounded-xl border border-slate-200 w-fit">
+              <button
+                type="button"
+                onClick={() => handleGradingSystemChange('grade')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer select-none ${
+                  gradingSystem === 'grade'
+                    ? 'bg-tec-navy text-white shadow-sm'
+                    : 'bg-transparent text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                Grade System (CGPA)
+              </button>
+              <button
+                type="button"
+                onClick={() => handleGradingSystemChange('marks')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer select-none ${
+                  gradingSystem === 'marks'
+                    ? 'bg-tec-navy text-white shadow-sm'
+                    : 'bg-transparent text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                Marks System (Percentage)
+              </button>
+            </div>
+          )}
+
           <div className="overflow-x-auto border border-slate-200 rounded-xl">
             <table className="w-full text-left text-xs">
               <thead className="bg-slate-100 border-b border-slate-200 text-slate-700 font-extrabold uppercase">
-                <tr>
-                  <th className="p-3 min-w-[120px]">Semester</th>
-                  <th className="p-3 min-w-[120px]">Maximum Marks</th>
-                  <th className="p-3 min-w-[120px]">Maximum Obtained</th>
-                  <th className="p-3 min-w-[120px]">Percentage of Marks</th>
-                </tr>
+                {isPg ? (
+                  <tr>
+                    <th className="p-3 min-w-[120px]">Semester</th>
+                    <th className="p-3 min-w-[200px]">{gradingSystem === 'grade' ? 'GPA / CGPA (out of 10)' : 'Percentage of Marks (%)'}</th>
+                  </tr>
+                ) : (
+                  <tr>
+                    <th className="p-3 min-w-[120px]">Semester</th>
+                    <th className="p-3 min-w-[120px]">Maximum Marks</th>
+                    <th className="p-3 min-w-[120px]">Maximum Obtained</th>
+                    <th className="p-3 min-w-[120px]">Percentage of Marks</th>
+                  </tr>
+                )}
               </thead>
               <tbody className="divide-y divide-slate-100 bg-white">
                 {semesterLabels.map((semLabel, idx) => {
@@ -1119,44 +1212,79 @@ function AcademicPerformanceRenderer({ field_label, required, value, onChange, e
                           <span className="text-[10px] font-semibold text-slate-400 bg-slate-200 px-1.5 py-0.5 rounded">(Optional)</span>
                         )}
                       </td>
-                      <td className="p-2">
-                        <input
-                          type="number"
-                          value={row.maximum_marks ?? '1000'}
-                          onChange={(e) => handleSemRowChange(semLabel, 'maximum_marks', e.target.value)}
-                          placeholder="1000"
-                          className="w-full rounded-lg border border-slate-300 p-2 text-xs focus:ring-1 focus:ring-tec-navy"
-                        />
-                      </td>
-                      <td className="p-2">
-                        <input
-                          type="number"
-                          value={row.obtained_marks ?? ''}
-                          onChange={(e) => handleSemRowChange(semLabel, 'obtained_marks', e.target.value)}
-                          placeholder={isCompulsorySem ? 'Obtained Marks' : 'Optional Marks'}
-                          className="w-full rounded-lg border border-slate-300 p-2 text-xs font-bold text-slate-900 focus:ring-1 focus:ring-tec-navy bg-amber-50/40"
-                        />
-                      </td>
-                      <td className="p-3 font-extrabold text-tec-navy">
-                        {row.percentage ? `${row.percentage}%` : '0.00%'}
-                      </td>
+                      {isPg ? (
+                        <td className="p-2">
+                          <input
+                            type="number"
+                            step="0.01"
+                            min={0}
+                            max={gradingSystem === 'grade' ? 10 : 100}
+                            value={row.obtained_marks ?? ''}
+                            onChange={(e) => handleSemRowChange(semLabel, 'obtained_marks', e.target.value)}
+                            placeholder={isCompulsorySem 
+                              ? (gradingSystem === 'grade' ? 'Enter GPA / CGPA (e.g. 8.50)' : 'Enter Percentage (e.g. 85.00)') 
+                              : 'Optional'}
+                            className="w-full rounded-lg border border-slate-300 p-2 text-xs font-bold text-slate-900 focus:ring-1 focus:ring-tec-navy bg-amber-50/40"
+                          />
+                        </td>
+                      ) : (
+                        <>
+                          <td className="p-2">
+                            <input
+                              type="number"
+                              value={row.maximum_marks ?? '1000'}
+                              onChange={(e) => handleSemRowChange(semLabel, 'maximum_marks', e.target.value)}
+                              placeholder="1000"
+                              className="w-full rounded-lg border border-slate-300 p-2 text-xs focus:ring-1 focus:ring-tec-navy"
+                            />
+                          </td>
+                          <td className="p-2">
+                            <input
+                              type="number"
+                              value={row.obtained_marks ?? ''}
+                              onChange={(e) => handleSemRowChange(semLabel, 'obtained_marks', e.target.value)}
+                              placeholder={isCompulsorySem ? 'Obtained Marks' : 'Optional Marks'}
+                              className="w-full rounded-lg border border-slate-300 p-2 text-xs font-bold text-slate-900 focus:ring-1 focus:ring-tec-navy bg-amber-50/40"
+                            />
+                          </td>
+                          <td className="p-3 font-extrabold text-tec-navy">
+                            {row.percentage ? `${row.percentage}%` : '0.00%'}
+                          </td>
+                        </>
+                      )}
                     </tr>
                   );
                 })}
               </tbody>
               {/* Total Cumulative Summary Row */}
               <tfoot className="bg-slate-800 text-white font-extrabold text-xs">
-                {(() => {
-                  const totals = calculateSemesterTotal(list);
-                  return (
-                    <tr>
-                      <td className="p-3">TOTAL</td>
-                      <td className="p-3">{totals.totalMax || '-'}</td>
-                      <td className="p-3">{totals.totalObt || '-'}</td>
-                      <td className="p-3 text-tec-gold text-sm font-black">{totals.overallPct}%</td>
-                    </tr>
-                  );
-                })()}
+                {isPg ? (
+                  (() => {
+                    const sum = list.reduce((acc, r) => acc + (parseFloat(r.obtained_marks) || 0), 0);
+                    const count = list.filter((r) => (parseFloat(r.obtained_marks) || 0) > 0).length;
+                    const avg = count > 0 ? (sum / count).toFixed(2) : '0.00';
+                    return (
+                      <tr>
+                        <td className="p-3">AVERAGE {gradingSystem === 'grade' ? 'CGPA' : 'PERCENTAGE'}</td>
+                        <td className="p-3 text-tec-gold text-sm font-black text-right" colSpan={1}>
+                          {avg} {gradingSystem === 'grade' ? '' : '%'}
+                        </td>
+                      </tr>
+                    );
+                  })()
+                ) : (
+                  (() => {
+                    const totals = calculateSemesterTotal(list);
+                    return (
+                      <tr>
+                        <td className="p-3">TOTAL</td>
+                        <td className="p-3">{totals.totalMax || '-'}</td>
+                        <td className="p-3">{totals.totalObt || '-'}</td>
+                        <td className="p-3 text-tec-gold text-sm font-black">{totals.overallPct}%</td>
+                      </tr>
+                    );
+                  })()
+                )}
               </tfoot>
             </table>
           </div>
