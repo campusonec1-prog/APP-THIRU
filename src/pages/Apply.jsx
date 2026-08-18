@@ -5,6 +5,7 @@ import {
   getFormFieldsList,
   getDepartmentsList,
   getProgramsList,
+  getCollegeHeadersList,
   createApplication,
   uploadDocuments
 } from '../Api';
@@ -77,6 +78,7 @@ export function Apply() {
   const [errors, setErrors] = useState({});
   const [draftSavedAt, setDraftSavedAt] = useState(null);
   const [submittedApplication, setSubmittedApplication] = useState(null);
+  const [collegeHeaderData, setCollegeHeaderData] = useState(null);
 
   // Load draft from localStorage on mount
   useEffect(() => {
@@ -160,17 +162,22 @@ export function Apply() {
   const fetchFormSchema = useCallback(async () => {
     try {
       setLoading(true);
-      const [modulesData, fieldsData, deptsData, progsData] = await Promise.all([
+      const [modulesData, fieldsData, deptsData, progsData, headersData] = await Promise.all([
         getFormModulesList().catch(() => []),
         getFormFieldsList().catch(() => []),
         getDepartmentsList().catch(() => []),
         getProgramsList().catch(() => []),
+        getCollegeHeadersList().catch(() => []),
       ]);
 
       const rawModules = Array.isArray(modulesData) ? modulesData : (modulesData?.data || []);
       const rawFields = Array.isArray(fieldsData) ? fieldsData : (fieldsData?.data || []);
       const rawDepts = Array.isArray(deptsData) ? deptsData : (deptsData?.data || []);
       const rawProgs = Array.isArray(progsData) ? progsData : (progsData?.data || []);
+      const rawHeaders = headersData?.results || 
+                         headersData?.data?.results || 
+                         (Array.isArray(headersData) ? headersData : 
+                         (Array.isArray(headersData?.data) ? headersData.data : []));
 
       const sortedModules = rawModules
         .filter((m) => m.is_active !== false)
@@ -180,6 +187,9 @@ export function Apply() {
       setFields(rawFields.filter((f) => f.is_active !== false));
       setDepartments(rawDepts);
       setPrograms(rawProgs);
+      if (rawHeaders.length > 0) {
+        setCollegeHeaderData(rawHeaders[0]);
+      }
 
       // Auto-resolve selectedProgramId from department name if provided via URL
       if (!selectedProgramId && initialDept) {
@@ -717,59 +727,90 @@ export function Apply() {
   // FINAL SUBMISSION HANDLER (Triggered ONLY from ApplicationReview confirmation)
   const executeFinalSubmission = async () => {
     setSubmitting(true);
-    let updatedValues = { ...formValues };
+    
+    // Safely clone formValues preserving raw File references
+    let updatedValues = {};
+    for (const [key, val] of Object.entries(formValues)) {
+      if (Array.isArray(val)) {
+        updatedValues[key] = val.map(item => {
+          if (item && typeof item === 'object') {
+            return { ...item };
+          }
+          return item;
+        });
+      } else if (val && typeof val === 'object' && !(val instanceof File)) {
+        updatedValues[key] = { ...val };
+      } else {
+        updatedValues[key] = val;
+      }
+    }
 
     try {
-      // Stage 1: Identify and Upload Files (POST /api/documents/upload)
-      const fileKeysToUpload = [];
-      const formData = new FormData();
-      formData.append('docType', 'application_documents');
-
-      fields.forEach((field) => {
-        if (field.field_type === 'file') {
-          const val = formValues[field.field_key];
-          // If value is a File object or has a raw File instance
+      // Collect all files to upload (both direct file inputs and files nested inside arrays)
+      const filesToUpload = []; // Array of { file: File, path: { type: 'direct'|'array', key, index, subKey } }
+      
+      for (const [key, val] of Object.entries(updatedValues)) {
+        if (val) {
           const rawFile = val instanceof File ? val : (val && val.file instanceof File ? val.file : null);
           if (rawFile) {
-            fileKeysToUpload.push({ key: field.field_key, file: rawFile });
-            formData.append(field.field_key, rawFile);
+            filesToUpload.push({ file: rawFile, path: { type: 'direct', key } });
+          } else if (Array.isArray(val)) {
+            val.forEach((item, index) => {
+              if (item && typeof item === 'object') {
+                for (const [subKey, subVal] of Object.entries(item)) {
+                  const subFile = subVal instanceof File ? subVal : (subVal && subVal.file instanceof File ? subVal.file : null);
+                  if (subFile) {
+                    filesToUpload.push({ file: subFile, path: { type: 'array', key, index, subKey } });
+                  }
+                }
+              }
+            });
           }
         }
-      });
+      }
 
-      if (fileKeysToUpload.length > 0) {
-        showToast(`Uploading ${fileKeysToUpload.length} document file(s) to R2 storage...`, 'info');
-        
-        // Execute Document Upload to Cloudflare R2
+      if (filesToUpload.length > 0) {
+        showToast('Uploading documents...', 'info');
+
+        const formData = new FormData();
+        formData.append('docType', 'application_documents');
+        filesToUpload.forEach((item) => {
+          formData.append('files', item.file);
+        });
+
+        // POST request to /api/documents/upload to upload files to Cloudflare R2
         const uploadRes = await uploadDocuments(formData, (percent) => {
           const progressObj = {};
-          fileKeysToUpload.forEach((item) => { progressObj[item.key] = percent; });
+          filesToUpload.forEach((item) => {
+            progressObj[item.path.key] = percent;
+          });
           setUploadProgressMap(progressObj);
         });
 
-        // Parse returned Cloudflare R2 file URLs
-        const uploadedList = Array.isArray(uploadRes?.data) ? uploadRes.data : (uploadRes?.data?.files || []);
-        let hasFailedFile = false;
+        // The response format from DocumentUploadView is {"code": 200, "message": "...", "data": [{"file_name": "...", "file_url": "..."}]}
+        const uploadedList = uploadRes?.data || [];
         
-        fileKeysToUpload.forEach((item, idx) => {
-          const returnedItem = uploadedList.find((u) => u.file_name === item.file.name) || uploadedList[idx];
-          const fileUrl = returnedItem?.file_url || returnedItem?.url || returnedItem?.path;
+        // Map S3/R2 URLs back to the original formValues structure
+        filesToUpload.forEach((item, idx) => {
+          const matched = uploadedList.find((u) => u.file_name === item.file.name) || uploadedList[idx];
+          const fileUrl = matched?.file_url || matched?.url || matched?.path;
+          
           if (fileUrl) {
-            updatedValues[item.key] = fileUrl;
+            if (item.path.type === 'direct') {
+              updatedValues[item.path.key] = fileUrl;
+            } else if (item.path.type === 'array') {
+              updatedValues[item.path.key][item.path.index][item.path.subKey] = fileUrl;
+            }
           } else {
-            hasFailedFile = true;
+            throw new Error(`Failed to upload ${item.file.name}. Please try again.`);
           }
         });
 
-        if (hasFailedFile || uploadedList.length === 0) {
-          throw new Error('Document upload is currently unavailable due to a server issue. Application creation blocked.');
-        }
-
+        // Save S3/R2 URLs in the local react state
         setFormValues(updatedValues);
-        showToast('All documents uploaded to Cloudflare R2 successfully!', 'success');
       }
 
-      // Stage 2: Construct Dynamic form_data Grouped by module_key & Create Application
+      // Group fields by module keys to construct nested form_data structure
       const nestedFormData = {};
       modules.forEach((mod) => {
         const mKey = mod.module_key || mod.name?.toLowerCase().replace(/\s+/g, '_') || `module_${mod.id}`;
@@ -809,7 +850,7 @@ export function Apply() {
         form_data: nestedFormData,
       };
 
-      showToast('Creating admission application...', 'info');
+      showToast('Submitting application...', 'info');
       const createRes = await createApplication(payload);
       const appData = createRes.data || createRes.application || createRes;
 
@@ -1102,6 +1143,7 @@ export function Apply() {
                 fields={fields}
                 formValues={formValues}
                 selectedProgramName={selectedDepartmentName}
+                collegeHeader={collegeHeaderData}
                 onEditModule={(modIdx) => {
                   setCurrentModuleIndex(modIdx);
                   setIsReviewStep(false);

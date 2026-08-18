@@ -53,3 +53,12 @@ export async function getFormFieldsList() {
   const response = await axiosInstance.get('/forms/fields/list?pagination=false');
   return response.data?.data || response.data;
 }
+
+/**
+ * Get College Headers List Service
+ * GET /institution/college-headers/list
+ */
+export async function getCollegeHeadersList() {
+  const response = await axiosInstance.get('/institution/college-headers/list');
+  return response.data?.data || response.data;
+}

@@ -161,16 +161,6 @@ export function AuthProvider({ children }) {
     }}>
       {children}
 
-      {/* Global Server Cold Start Status Banner */}
-      {isServerWakingUp && (
-        <div className="fixed bottom-4 left-1/2 transform -translate-x-1/2 z-50 transition-all ease-out duration-300">
-          <div className="px-5 py-3 rounded-2xl bg-amber-500 text-slate-950 font-extrabold text-xs sm:text-sm flex items-center gap-3 shadow-2xl border-2 border-amber-300 animate-pulse">
-            <div className="w-3 h-3 rounded-full bg-slate-950 animate-ping" />
-            <span>Waking up the server... Please hold tight, processing your request!</span>
-          </div>
-        </div>
-      )}
-
       {/* Global Toast Component */}
       {toast && (
         <div className="fixed top-4 right-4 sm:right-6 z-50 transition-all transform ease-out duration-300">

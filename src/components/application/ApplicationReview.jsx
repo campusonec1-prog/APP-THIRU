@@ -1,5 +1,6 @@
 import React from 'react';
 import { ShieldCheck, Edit3, FileText, CheckCircle2, AlertTriangle, ArrowLeft } from 'lucide-react';
+import { COLLEGE_CONFIG } from '../../Config/collegeConfig';
 
 /**
  * Format field value for display in review screen
@@ -232,33 +233,151 @@ export function ApplicationReview({
   onBackToForm,
   onConfirmSubmit,
   submitting = false,
+  collegeHeader = null,
 }) {
+  const [localPhotoBlob, setLocalPhotoBlob] = React.useState(null);
+
+  // Dynamically generate a temporary object URL if the user uploaded a raw File object that is not yet serialized
+  React.useEffect(() => {
+    let rawFile = null;
+    if (formValues.photo) {
+      if (formValues.photo instanceof File) {
+        rawFile = formValues.photo;
+      } else if (formValues.photo.file instanceof File) {
+        rawFile = formValues.photo.file;
+      }
+    }
+    
+    if (!rawFile) {
+      const certs = formValues.certificates || [];
+      const photoCert = certs.find(
+        (c) =>
+          c &&
+          (c.certificate_type === 'Passport Size Photo' ||
+            c.document_type === 'Passport Size Photo' ||
+            c.name === 'Passport Size Photo')
+      );
+      if (photoCert) {
+        if (photoCert.document instanceof File) {
+          rawFile = photoCert.document;
+        } else if (photoCert.document?.file instanceof File) {
+          rawFile = photoCert.document.file;
+        }
+      }
+    }
+    
+    if (rawFile) {
+      try {
+        const blobUrl = URL.createObjectURL(rawFile);
+        setLocalPhotoBlob(blobUrl);
+        return () => {
+          URL.revokeObjectURL(blobUrl);
+        };
+      } catch (e) {
+        console.error('Failed to create object URL for photo:', e);
+      }
+    } else {
+      setLocalPhotoBlob(null);
+    }
+  }, [formValues]);
+
+  // Extract photo URL from formValues or certificates list
+  const photoUrl = React.useMemo(() => {
+    if (localPhotoBlob) return localPhotoBlob;
+
+    if (formValues.photo) {
+      if (typeof formValues.photo === 'string') return formValues.photo;
+      if (typeof formValues.photo === 'object') {
+        const url = formValues.photo.previewUrl || formValues.photo.url;
+        if (url && typeof url === 'string') return url;
+      }
+    }
+    
+    const certs = formValues.certificates || [];
+    const photoCert = certs.find(
+      (c) =>
+        c &&
+        (c.certificate_type === 'Passport Size Photo' ||
+          c.document_type === 'Passport Size Photo' ||
+          c.name === 'Passport Size Photo')
+    );
+    
+    if (photoCert) {
+      if (photoCert.document) {
+        if (typeof photoCert.document === 'string') return photoCert.document;
+        if (typeof photoCert.document === 'object') {
+          const url = photoCert.document.previewUrl || photoCert.document.url;
+          if (url && typeof url === 'string') return url;
+        }
+      }
+      if (typeof photoCert === 'string') return photoCert;
+      const url = photoCert.previewUrl || photoCert.url;
+      if (url && typeof url === 'string') return url;
+    }
+    
+    return null;
+  }, [formValues, localPhotoBlob]);
+
   return (
     <div className="space-y-6">
       
-      {/* Review Screen Header Alert */}
-      <div className="bg-amber-50 border-2 border-amber-300 rounded-2xl p-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-        <div className="flex items-start gap-3">
-          <AlertTriangle className="w-6 h-6 text-amber-600 shrink-0 mt-0.5" />
-          <div>
-            <h3 className="text-base font-extrabold text-amber-950">Review Your Application Before Final Submission</h3>
-            <p className="text-xs text-amber-800 mt-0.5">
-              Please carefully verify all details below. No documents have been uploaded yet. You can click &quot;Edit Section&quot; to modify any section before final submission.
-            </p>
+      {/* Official College Application Form Header */}
+      <div className="bg-white border border-slate-200 rounded-3xl p-6 sm:p-8 shadow-md flex flex-col md:flex-row items-center justify-between gap-6 relative overflow-hidden">
+        {/* Decorative Golden Line */}
+        <div className="absolute top-0 left-0 right-0 h-1.5 bg-tec-gold" />
+
+        {/* Left Side: Logo */}
+        <div className="flex flex-col items-center shrink-0">
+          <img src={collegeHeader?.primary_logo || COLLEGE_CONFIG.images.logo} alt="College Logo" className="w-20 h-20 object-contain" />
+          <span className="text-[9px] font-extrabold text-slate-500 uppercase tracking-widest mt-1">ESTD. 1999</span>
+        </div>
+
+        {/* Middle: College Information */}
+        <div className="text-center flex-grow space-y-1.5">
+          <h1 className="text-xl md:text-2xl font-black text-slate-900 tracking-tight uppercase">
+            {collegeHeader?.college_name || COLLEGE_CONFIG.name}
+          </h1>
+          <p className="text-[11px] font-bold text-slate-700 leading-tight">
+            (Approved by AICTE & Govt. of Tamilnadu, Affiliated to Anna University)
+          </p>
+          <p className="text-[11px] font-semibold text-slate-500">
+            {collegeHeader?.address || 'Kilambi, Krishnapuram Post - 631 551, Kancheepuram Taluk & District, Tamil Nadu.'}
+          </p>
+          
+          <div className="pt-1.5">
+            <span className="inline-block px-4 py-1.5 rounded-full bg-slate-50 border border-slate-200 text-[10px] font-black text-tec-navy uppercase tracking-wider">
+              Application Form for Admission to B.E. / B.Tech. / M.E. / MBA / MCA Degree Course
+            </span>
           </div>
+        </div>
+
+        {/* Right Side: Passport Size Photo Box */}
+        <div className="shrink-0 flex flex-col items-center">
+          {photoUrl ? (
+            <div className="relative w-24 h-28 border border-emerald-300 rounded-lg overflow-hidden bg-slate-50 shadow-sm flex items-center justify-center">
+              <img src={photoUrl} alt="Passport Photo" className="w-full h-full object-cover" />
+            </div>
+          ) : (
+            <div className="w-24 h-28 border-2 border-dashed border-slate-300 rounded-lg bg-slate-50 flex flex-col items-center justify-center p-2 text-center text-[10px] text-slate-400 font-bold leading-tight">
+              <span className="block mb-1">Affix</span>
+              <span className="block">Passport Size</span>
+              <span className="block">Photo</span>
+            </div>
+          )}
         </div>
       </div>
 
-      {/* Program Summary Card */}
-      <div className="bg-tec-navy text-white rounded-2xl p-6 shadow-md border-b-4 border-tec-gold flex items-center justify-between">
+      {/* Applied For & Back Button Row (Before Step 1) */}
+      <div className="bg-white border border-slate-200 rounded-3xl p-5 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <span className="text-[10px] font-extrabold uppercase tracking-widest text-tec-gold">Target Academic Program</span>
-          <h2 className="text-xl font-black mt-0.5">{selectedProgramName || 'Selected Admission Program'}</h2>
+          <span className="text-[10px] font-bold text-tec-navy uppercase tracking-widest block">Course Applied For</span>
+          <h3 className="text-lg font-black text-slate-900 mt-1">{selectedProgramName || 'Selected Academic Program'}</h3>
+          <p className="text-xs text-slate-500 font-medium mt-0.5">Admission application under Academic Year {COLLEGE_CONFIG.academicYear || '2026-27'}</p>
         </div>
         <button
           type="button"
           onClick={onBackToForm}
-          className="px-4 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-bold transition flex items-center gap-1.5 cursor-pointer border border-white/20"
+          className="inline-flex items-center gap-1.5 px-4.5 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 hover:border-slate-400 text-xs font-bold transition shadow-xs cursor-pointer shrink-0 self-start sm:self-center"
         >
           <ArrowLeft className="w-4 h-4" />
           <span>Back to Form</span>
