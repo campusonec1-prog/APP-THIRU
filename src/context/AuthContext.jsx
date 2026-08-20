@@ -50,6 +50,7 @@ export function AuthProvider({ children }) {
   });
 
   const [application, setApplication] = useState(null);
+  const [applications, setApplications] = useState([]);
   const [toast, setToast] = useState(null);
   const [isServerWakingUp, setIsServerWakingUp] = useState(false);
   const [academicYearObj, setAcademicYearObj] = useState(null);
@@ -89,15 +90,19 @@ export function AuthProvider({ children }) {
     try {
       const res = await getApplicationStatus();
       let appData = res?.data || res?.application || res;
+      let allApps = [];
       if (appData && typeof appData === 'object' && Array.isArray(appData.results)) {
-        appData = appData.results[0] || null;
+        allApps = appData.results;
       } else if (Array.isArray(appData)) {
-        appData = appData[0] || null;
+        allApps = appData;
+      } else if (appData) {
+        allApps = [appData];
       }
-      if (appData) {
-        setApplication(appData);
-      }
-      return appData;
+      
+      setApplications(allApps);
+      const latestApp = allApps[0] || null;
+      setApplication(latestApp);
+      return latestApp;
     } catch (err) {
       console.error('Failed to refresh application status:', err);
       return null;
@@ -141,6 +146,7 @@ export function AuthProvider({ children }) {
     purgeObsoleteLocalStorage();
     setUser(null);
     setApplication(null);
+    setApplications([]);
     showToast('Logged out of application portal.', 'info');
   };
 
@@ -150,6 +156,8 @@ export function AuthProvider({ children }) {
       setUser,
       application,
       setApplication,
+      applications,
+      setApplications,
       academicYear,
       academicYearObj,
       login,

@@ -1256,36 +1256,7 @@ function AcademicPerformanceRenderer({ field_label, required, value, onChange, e
                   );
                 })}
               </tbody>
-              {/* Total Cumulative Summary Row */}
-              <tfoot className="bg-slate-800 text-white font-extrabold text-xs">
-                {isPg ? (
-                  (() => {
-                    const sum = list.reduce((acc, r) => acc + (parseFloat(r.obtained_marks) || 0), 0);
-                    const count = list.filter((r) => (parseFloat(r.obtained_marks) || 0) > 0).length;
-                    const avg = count > 0 ? (sum / count).toFixed(2) : '0.00';
-                    return (
-                      <tr>
-                        <td className="p-3">AVERAGE {gradingSystem === 'grade' ? 'CGPA' : 'PERCENTAGE'}</td>
-                        <td className="p-3 text-tec-gold text-sm font-black text-right" colSpan={1}>
-                          {avg} {gradingSystem === 'grade' ? '' : '%'}
-                        </td>
-                      </tr>
-                    );
-                  })()
-                ) : (
-                  (() => {
-                    const totals = calculateSemesterTotal(list);
-                    return (
-                      <tr>
-                        <td className="p-3">TOTAL</td>
-                        <td className="p-3">{totals.totalMax || '-'}</td>
-                        <td className="p-3">{totals.totalObt || '-'}</td>
-                        <td className="p-3 text-tec-gold text-sm font-black">{totals.overallPct}%</td>
-                      </tr>
-                    );
-                  })()
-                )}
-              </tfoot>
+
             </table>
           </div>
         </div>
@@ -1471,18 +1442,23 @@ function CertificatesRenderer({ field_label, required, value, onChange, error, p
                   <td className="p-3 font-bold text-slate-500">{rowIdx + 1}</td>
                   <td className="p-2">
                     <div className="flex items-center gap-2">
-                      <select
-                        value={row.certificate_type || availableOptions[0] || ''}
-                        onChange={(e) => handleRowCertChange(rowIdx, e.target.value)}
-                        className={`w-full rounded-lg border p-2 text-xs font-bold text-slate-800 focus:ring-1 focus:ring-tec-navy cursor-pointer ${isCompulsory ? 'bg-slate-50 border-slate-300' : 'bg-amber-50/50 border-amber-200'
-                          }`}
-                      >
-                        {availableOptions.map((opt) => (
-                          <option key={opt} value={opt}>{opt}</option>
-                        ))}
-                      </select>
+                      {isCompulsory ? (
+                        <span className="p-2 text-xs font-bold text-slate-800 bg-slate-50 border border-slate-200 rounded-lg w-full inline-block">
+                          {row.certificate_type}
+                        </span>
+                      ) : (
+                        <select
+                          value={row.certificate_type || availableOptions[0] || ''}
+                          onChange={(e) => handleRowCertChange(rowIdx, e.target.value)}
+                          className="w-full rounded-lg border border-amber-200 p-2 text-xs font-bold text-slate-800 focus:ring-1 focus:ring-tec-navy cursor-pointer bg-amber-50/50"
+                        >
+                          {availableOptions.map((opt) => (
+                            <option key={opt} value={opt}>{opt}</option>
+                          ))}
+                        </select>
+                      )}
                       {isCompulsory && (
-                        <span className="text-[10px] font-extrabold text-rose-500 shrink-0" title="Compulsory Upload">* Required</span>
+                        <span className="text-[10px] font-extrabold text-rose-500 shrink-0 select-none" title="Compulsory Upload">* Required</span>
                       )}
                     </div>
                   </td>

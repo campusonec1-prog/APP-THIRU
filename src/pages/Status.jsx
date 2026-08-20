@@ -17,7 +17,7 @@ import {
 } from 'lucide-react';
 
 export function Status() {
-  const { user, application, refreshApplicationStatus, academicYear, showToast } = useAuth();
+  const { user, application, applications, refreshApplicationStatus, academicYear, showToast } = useAuth();
   const navigate = useNavigate();
 
 
@@ -29,21 +29,21 @@ export function Status() {
   const [modules, setModules] = useState([]);
   const [fields, setFields] = useState([]);
   const [collegeHeader, setCollegeHeader] = useState(null);
-  const [downloading, setDownloading] = useState(false);
+  const [downloading, setDownloading] = useState(null);
 
-  const handleDownloadPDF = async () => {
-    if (!application?.id) return;
+  const handleDownloadPDF = async (app) => {
+    if (!app?.id) return;
     try {
-      setDownloading(true);
-      if (showToast) showToast('Generating application PDF...', 'info');
-      const blobData = await downloadApplicationPDF(application.id);
+      setDownloading(app.id);
+      if (showToast) showToast(`Generating application PDF for ${app.application_no || 'Form'}...`, 'info');
+      const blobData = await downloadApplicationPDF(app.id);
       
       const fileBlob = new Blob([blobData], { type: 'application/pdf' });
       const fileURL = URL.createObjectURL(fileBlob);
       
       const link = document.createElement('a');
       link.href = fileURL;
-      link.download = `Application_${application.application_no || 'Form'}.pdf`;
+      link.download = `Application_${app.application_no || 'Form'}.pdf`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -54,7 +54,7 @@ export function Status() {
       console.error('Failed to download PDF:', err);
       if (showToast) showToast('Failed to download PDF. Please try again.', 'error');
     } finally {
-      setDownloading(false);
+      setDownloading(null);
     }
   };
 
@@ -197,7 +197,7 @@ export function Status() {
             <div className="bg-white rounded-2xl border border-slate-200 shadow-lg p-6 h-full">
               <div className="flex items-center justify-between border-b border-slate-100 pb-4 mb-5">
                 <div>
-                  <h3 className="text-base font-extrabold text-slate-900">My Application</h3>
+                  <h3 className="text-base font-extrabold text-slate-900">My Applications</h3>
                   <p className="text-xs text-slate-500 mt-0.5">Track your submitted application status</p>
                 </div>
                 <div className="w-10 h-10 rounded-xl bg-tec-navy/10 flex items-center justify-center">
@@ -205,45 +205,61 @@ export function Status() {
                 </div>
               </div>
 
-              {application ? (
-                /* If application exists */
-                <div className="space-y-4">
-                  <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-3">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Application Number</span>
-                      <span className="text-sm font-extrabold text-tec-navy">{application.application_no || 'N/A'}</span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Status</span>
-                      <span className={`text-xs font-extrabold px-3 py-1 rounded-full ${
-                        application.status_name === 'Approved' ? 'bg-emerald-100 text-emerald-800' :
-                        application.status_name === 'Rejected' ? 'bg-rose-100 text-rose-800' :
-                        'bg-amber-100 text-amber-800'
-                      }`}>
-                        {application.status_name || 'Pending'}
-                      </span>
-                    </div>
-                  </div>
+              {applications && applications.length > 0 ? (
+                /* If applications exist */
+                <div className="space-y-4 max-h-[380px] overflow-y-auto pr-1">
+                  {applications.map((app) => {
+                    const isDownloading = downloading === app.id;
+                    const courseName = app.program_name || 'N/A';
+                    const deptName = app.form_data?.course_selection?.department || '';
+                    const fullDeptDisplayName = Array.isArray(deptName) ? deptName.join(', ') : deptName;
 
-                  <div className="pt-2 no-print">
-                    <button
-                      onClick={handleDownloadPDF}
-                      disabled={downloading}
-                      className="w-full py-3.5 px-5 rounded-xl bg-tec-gold hover:bg-tec-gold-hover text-slate-950 font-black text-sm flex items-center justify-center gap-2 shadow-md transition cursor-pointer border border-amber-300 disabled:opacity-50"
-                    >
-                      {downloading ? (
-                        <>
-                          <div className="w-4 h-4 border-2 border-slate-950 border-t-transparent rounded-full animate-spin" />
-                          <span>Generating PDF...</span>
-                        </>
-                      ) : (
-                        <>
-                          <FileText className="w-4 h-4 text-slate-950" />
-                          <span>Download PDF Application</span>
-                        </>
-                      )}
-                    </button>
-                  </div>
+                    return (
+                      <div key={app.id} className="bg-slate-50 border border-slate-200 rounded-xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                        <div className="space-y-1.5 min-w-0 flex-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">No:</span>
+                            <span className="text-xs font-black text-tec-navy">{app.application_no || 'N/A'}</span>
+                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                              app.status_name === 'Approved' ? 'bg-emerald-100 text-emerald-800' :
+                              app.status_name === 'Rejected' ? 'bg-rose-100 text-rose-800' :
+                              'bg-amber-100 text-amber-800'
+                            }`}>
+                              {app.status_name || 'Pending'}
+                            </span>
+                          </div>
+                          <div>
+                            <h4 className="text-xs font-black text-slate-800 truncate">
+                              {fullDeptDisplayName || courseName}
+                            </h4>
+                            <p className="text-[10px] text-slate-400 font-medium">
+                              Applied on {new Date(app.created_at).toLocaleDateString()}
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="no-print shrink-0">
+                          <button
+                            onClick={() => handleDownloadPDF(app)}
+                            disabled={downloading !== null}
+                            className="px-4 py-2 rounded-xl bg-tec-gold hover:bg-tec-gold-hover text-slate-950 font-extrabold text-xs flex items-center justify-center gap-1.5 shadow-sm transition cursor-pointer border border-amber-300 disabled:opacity-50"
+                          >
+                            {isDownloading ? (
+                              <>
+                                <div className="w-3.5 h-3.5 border-2 border-slate-950 border-t-transparent rounded-full animate-spin" />
+                                <span>Generating...</span>
+                              </>
+                            ) : (
+                              <>
+                                <FileText className="w-3.5 h-3.5 text-slate-950" />
+                                <span>Download PDF</span>
+                              </>
+                            )}
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               ) : (
                 /* No application yet */

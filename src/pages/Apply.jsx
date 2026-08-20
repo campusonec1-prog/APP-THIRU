@@ -770,12 +770,25 @@ export function Apply() {
     let updatedValues = {};
     for (const [key, val] of Object.entries(formValues)) {
       if (Array.isArray(val)) {
-        updatedValues[key] = val.map(item => {
+        let clonedArr = val.map(item => {
           if (item && typeof item === 'object') {
             return { ...item };
           }
           return item;
         });
+
+        // Filter out empty optional semesters (VII & VIII)
+        if (key === 'academic_performance') {
+          clonedArr = clonedArr.filter((r) => {
+            const isOptionalSem = r.semester === 'Semester VII' || r.semester === 'Semester VIII';
+            if (isOptionalSem) {
+              const hasMarks = r.obtained_marks !== undefined && r.obtained_marks !== null && String(r.obtained_marks).trim() !== '';
+              return hasMarks;
+            }
+            return true;
+          });
+        }
+        updatedValues[key] = clonedArr;
       } else if (val && typeof val === 'object' && !(val instanceof File)) {
         updatedValues[key] = { ...val };
       } else {
